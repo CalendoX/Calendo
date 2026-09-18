@@ -1,0 +1,14 @@
+# Keep the build context small and free of secrets.
+node_modules
+.next
+dist
+coverage
+test-results
+playwright-report
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.git
+.DS_Store
+npm-debug.log*

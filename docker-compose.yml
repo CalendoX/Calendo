@@ -1,0 +1,34 @@
+# Local development services. The application itself runs on the host via `npm run dev`
+# and `npm run worker:dev`. For a containerised production-like stack see
+# docker-compose.prod.yml.
+name: slate
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: slate
+      POSTGRES_PASSWORD: slate
+      POSTGRES_DB: slate
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U slate -d slate"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Catches every outgoing email in development. UI: http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+
+volumes:
+  postgres-data:

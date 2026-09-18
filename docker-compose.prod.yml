@@ -1,0 +1,64 @@
+# Production-like stack: PostgreSQL, a one-shot migration job, the web server and the worker.
+#
+#   cp .env.example .env.production    # fill in real values (APP_URL must be https in production)
+#   export POSTGRES_PASSWORD=$(openssl rand -hex 24)
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Put a TLS-terminating reverse proxy / load balancer in front of `web` (port 3000) and set
+# TRUST_PROXY=true so client IPs are used for rate limiting and audit logs. Scale workers with
+#   docker compose -f docker-compose.prod.yml up -d --scale worker=3
+# (pg-boss coordinates them safely through Postgres).
+name: slate-production
+
+x-app-env: &app-env
+  env_file: .env.production
+  environment:
+    NODE_ENV: production
+    DATABASE_URL: postgres://slate:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/slate
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: slate
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: slate
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U slate -d slate"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Applies Drizzle migrations and the job-queue schema, then exits. Safe to run on every deploy.
+  migrate:
+    <<: *app-env
+    build: { context: ., target: worker }
+    image: slate-worker
+    command: ["node", "dist/migrate.js"]
+    restart: "no"
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  web:
+    <<: *app-env
+    build: { context: ., target: web }
+    image: slate-web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  worker:
+    <<: *app-env
+    image: slate-worker
+    restart: unless-stopped
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    stop_grace_period: 40s
+
+volumes:
+  postgres-data:
