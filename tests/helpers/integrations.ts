@@ -16,7 +16,7 @@ export async function connect(provider: 'google' | 'zoom', user: User, org?: Org
   await signIn(user, org);
   const start = await call(connectRoute, { path: `/api/integrations/${provider}/connect`, params: { provider }, body: {} });
   expect(start.status).toBe(200);
-  const grant = provider === 'google' ? fakeProviders.google.authorize(start.body.url, opts) : fakeProviders.zoom.authorize(start.body.url);
+  const grant = provider === 'google' ? fakeProviders.google.authorize(start.body.url, opts) : fakeProviders.zoom.authorize(start.body.url, opts);
   const callback = await call(callbackRoute, {
     path: `/api/integrations/${provider}/callback?code=${encodeURIComponent(grant.code)}&state=${encodeURIComponent(grant.state)}`,
     params: { provider },

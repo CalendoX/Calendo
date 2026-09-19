@@ -14,7 +14,7 @@ export function Logo({ className, tone = 'dark' }: { className?: string; tone?: 
   return (
     <span className={cn('inline-flex items-center gap-2.5', className)}>
       <LogoMark />
-      <span className={cn('text-[17px] font-semibold tracking-tight', tone === 'light' ? 'text-white' : 'text-zinc-900')}>Slate</span>
+      <span className={cn('text-[17px] font-semibold tracking-tight', tone === 'light' ? 'text-white' : 'text-zinc-900')}>Calendor</span>
     </span>
   );
 }

@@ -25,7 +25,7 @@ export const TEST_ENV: Record<string, string> = {
   ZOOM_REDIRECT_URI: 'http://localhost:3000/api/integrations/zoom/callback',
   ZOOM_WEBHOOK_SECRET_TOKEN: 'test-zoom-webhook-secret',
   EMAIL_PROVIDER: 'console',
-  EMAIL_FROM: 'Slate Test <scheduling@slate.test>',
+  EMAIL_FROM: 'Calendor Test <scheduling@slate.test>',
   LOG_LEVEL: 'error',
 };
 

@@ -12,6 +12,7 @@ import { POST as rescheduleRoute } from '@/app/api/interviews/[id]/reschedule/ro
 import { POST as cancelRoute } from '@/app/api/interviews/[id]/cancel/route';
 import { POST as syncRoute } from '@/app/api/interviews/[id]/sync/route';
 import { POST as googleWebhookRoute } from '@/app/api/webhooks/google/route';
+import { GET as calendarOverlayRoute } from '@/app/api/calendar/busy/route';
 import { db } from '@/server/db/client';
 import { auditLogs, calendarEvents, calendarWatchChannels, integrationCalendars, integrations, interviews, webhookEvents } from '@/server/db/schema';
 import { googleCalendarProvider, googleEventIdFor } from '@/server/integrations/google/calendar';
@@ -248,7 +249,7 @@ describe('calendar event lifecycle', () => {
     for (const expected of ['riley@candidate.test', 'Priya Nair', '+1 555 0142', 'What should we focus on?: Distributed systems', `/interviews/${interview.id}`]) {
       expect(event.description).toContain(expected);
     }
-    // By default the candidate is not added as a guest (Slate sends its own emails).
+    // By default the candidate is not added as a guest (Calendor sends its own emails).
     expect(event.attendees).toEqual([]);
     expect(event.sendUpdates).toBe('none');
   });
@@ -444,7 +445,7 @@ describe('Google push notifications (webhook)', () => {
     const changes = await db.select().from(auditLogs).where(eq(auditLogs.action, 'integration.external_change'));
     expect(changes[0].metadata).toMatchObject({ provider: 'google_calendar', change: 'event_deleted' });
 
-    // The interviewer chooses to restore it from Slate.
+    // The interviewer chooses to restore it from Calendor.
     await signIn(w.host);
     const retry = await call(syncRoute, { path: '/x', params: { id: interview.id }, body: {} });
     expect(retry.body.calendar).toBe('ok');
@@ -459,5 +460,99 @@ describe('Google push notifications (webhook)', () => {
     expect(moved.map((m) => m.metadata.change)).toContain('event_moved');
     const [unchanged] = await db.select().from(interviews);
     expect(unchanged.startAt.toISOString()).toBe(upcomingWeekday(TZ, '10:00').toISOString());
+  });
+});
+
+describe('calendar view: Google Calendar events', () => {
+  function overlay(day: Date) {
+    const start = new Date(day.getTime() - 12 * 3600_000);
+    const end = new Date(day.getTime() + 12 * 3600_000);
+    return call(calendarOverlayRoute, { path: `/api/calendar/busy?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}` });
+  }
+  function event(id: string, start: Date, minutes: number, extra: Partial<Parameters<ReturnType<typeof google>['events']['set']>[1]> = {}) {
+    google().events.set(id, {
+      id,
+      calendarId: PRIMARY,
+      status: 'confirmed',
+      start: { dateTime: start.toISOString() },
+      end: { dateTime: addMinutes(start, minutes).toISOString() },
+      ...extra,
+    });
+  }
+
+  it("shows the user's own events with titles, guests and video links", async () => {
+    const w = await connected();
+    const at = upcomingWeekday(TZ, '10:00');
+    event('design1', at, 45, {
+      summary: 'Design review',
+      location: 'Room 4',
+      hangoutLink: 'https://meet.google.com/abc-defg-hij',
+      organizer: { email: 'alex@acme.test', displayName: 'Alex Kim' },
+      attendees: [
+        { email: 'alex@acme.test', displayName: 'Alex Kim', responseStatus: 'accepted', organizer: true },
+        { email: 'priya.interviews@gmail.test', responseStatus: 'tentative', self: true },
+        { email: 'room-4@resource.calendar.google.com', resource: true },
+      ],
+    });
+    event('untitled', addMinutes(at, 120), 30, { hangoutLink: 'javascript:alert(1)' });
+    // Not shown: free time, events the user declined, Calendor's own interview events, other days.
+    event('focus', addMinutes(at, 60), 30, { summary: 'Focus time', transparency: 'transparent' });
+    event('declined', addMinutes(at, 180), 30, { summary: 'Skipped', attendees: [{ email: 'priya.interviews@gmail.test', self: true, responseStatus: 'declined' }] });
+    event('slateabc', addMinutes(at, 240), 30, { summary: 'Interview', extendedProperties: { private: { slateInterviewId: randomUUID() } } });
+    event('nextweek', addMinutes(at, 7 * 24 * 60), 30, { summary: 'Later' });
+
+    await signIn(w.host, w.org);
+    const res = await overlay(at);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ connected: true, available: true, busy: [] });
+    expect(res.body.events).toEqual([
+      {
+        id: 'design1',
+        calendarName: 'Priya Nair',
+        title: 'Design review',
+        start: at.toISOString(),
+        end: addMinutes(at, 45).toISOString(),
+        allDay: false,
+        location: 'Room 4',
+        videoUrl: 'https://meet.google.com/abc-defg-hij',
+        htmlLink: 'https://www.google.com/calendar/event?eid=design1',
+        organizer: { email: 'alex@acme.test', name: 'Alex Kim' },
+        attendees: [
+          { email: 'alex@acme.test', name: 'Alex Kim', responseStatus: 'accepted', organizer: true },
+          { email: 'priya.interviews@gmail.test', name: null, responseStatus: 'tentative', organizer: false },
+        ],
+      },
+      // Untitled events get a placeholder; non-http(s) links from event data are dropped.
+      expect.objectContaining({ id: 'untitled', title: '(No title)', videoUrl: null }),
+    ]);
+    signOut();
+  });
+
+  it('shows plain busy blocks for calendars whose event details the user cannot read', async () => {
+    const w = await connected();
+    const at = upcomingWeekday(TZ, '10:00');
+    const [integration] = await db.select().from(integrations).where(eq(integrations.userId, w.host.id));
+    await db.update(integrationCalendars).set({ checkConflicts: true }).where(eq(integrationCalendars.integrationId, integration.id));
+    // The holidays calendar refuses event listing: it falls back to free/busy.
+    google().eventsForbidden.add(HOLIDAYS);
+    google().busy.set(HOLIDAYS, [{ start: at.toISOString(), end: addMinutes(at, 60).toISOString() }]);
+    event('standup', addMinutes(at, 90), 15, { summary: 'Standup' });
+
+    await signIn(w.host, w.org);
+    const res = await overlay(at);
+    expect(res.body.events.map((e: { title: string }) => e.title)).toEqual(['Standup']);
+    expect(res.body.busy).toEqual([{ start: at.toISOString(), end: addMinutes(at, 60).toISOString() }]);
+    signOut();
+  });
+
+  it("never shows one person's events to anyone else", async () => {
+    const w = await connected();
+    const at = upcomingWeekday(TZ, '10:00');
+    event('private1', at, 30, { summary: '1:1 with manager' });
+    const colleague = await createMember(w.org, { role: 'admin' });
+    await signIn(colleague, w.org);
+    const res = await overlay(at);
+    expect(res.body).toEqual({ connected: false, available: true, events: [], busy: [] });
+    signOut();
   });
 });

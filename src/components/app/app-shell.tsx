@@ -141,7 +141,7 @@ export function AppShell({
   const sidebar = (
     <div className="flex h-full flex-col bg-sidebar">
       <div className="flex h-16 shrink-0 items-center justify-between px-5">
-        <Link href="/dashboard" aria-label="Slate home">
+        <Link href="/dashboard" aria-label="Calendor home">
           <Logo tone="light" />
         </Link>
         <button className="rounded-lg p-1.5 text-sidebar-muted hover:bg-white/10 lg:hidden" onClick={() => setMobileOpen(false)} aria-label="Close menu">

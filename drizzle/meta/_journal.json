@@ -15,6 +15,13 @@
       "when": 1789706082552,
       "tag": "0001_interview_overlap_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789749569901,
+      "tag": "0002_organization_logos",
+      "breakpoints": true
     }
   ]
 }

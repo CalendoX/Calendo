@@ -8,8 +8,10 @@ import { POST as rescheduleRoute } from '@/app/api/interviews/[id]/reschedule/ro
 import { POST as cancelRoute } from '@/app/api/interviews/[id]/cancel/route';
 import { GET as zoomStartRoute } from '@/app/api/interviews/[id]/zoom/start/route';
 import { POST as zoomWebhookRoute } from '@/app/api/webhooks/zoom/route';
+import { GET as connectLinkRoute } from '@/app/(app)/integrations/connect/[provider]/route';
+import { GET as oauthCallbackRoute } from '@/app/api/integrations/[provider]/callback/route';
 import { db } from '@/server/db/client';
-import { auditLogs, candidates, interviews, videoMeetings, webhookEvents } from '@/server/db/schema';
+import { auditLogs, candidates, interviews, oauthStates, videoMeetings, webhookEvents } from '@/server/db/schema';
 import { googleEventIdFor } from '@/server/integrations/google/calendar';
 import { processWebhookEvent } from '@/server/integrations/webhooks';
 import { handleInterviewSync } from '@/server/jobs/handlers';
@@ -109,7 +111,7 @@ describe('Zoom meeting lifecycle', () => {
     expect(confirmation.icalEvent?.content).toContain('LOCATION:https://us06web.zoom.us/j/');
     const allCandidateMail = JSON.stringify(outbox.to('riley@candidate.test'));
     expect(allCandidateMail).not.toContain('zak=');
-    // The host notification links to Slate, not to the raw start URL.
+    // The host notification links to Calendor, not to the raw start URL.
     expect(JSON.stringify(outbox.to(w.host.email))).not.toContain('zak=');
 
     const view = await call(bookingViewRoute, { path: '/x', params: { token: res.body.confirmationUrl.split('/').pop() } });
@@ -332,12 +334,92 @@ describe('Zoom webhooks', () => {
     expect(row.lastError).toMatch(/Reconnect Zoom/);
   });
 
-  it('acknowledges but ignores events about meetings Slate does not manage', async () => {
+  it('acknowledges but ignores events about meetings Calendor does not manage', async () => {
     await withZoom();
     expect((await signed({ event: 'meeting.deleted', event_ts: 1, payload: { object: { id: 42 } } })).status).toBe(204);
     expect((await signed({ event: 'recording.completed', event_ts: 2, payload: {} })).status).toBe(204);
     for (const evt of await db.select().from(webhookEvents)) await processWebhookEvent(evt.id);
     expect((await db.select().from(webhookEvents)).map((e) => e.status)).toEqual(['ignored', 'ignored']);
     expect(await db.select().from(auditLogs).where(eq(auditLogs.action, 'integration.external_change'))).toHaveLength(0);
+  });
+});
+
+describe('Zoom app scopes', () => {
+  it('refuses the connection and names the scopes missing from the Zoom Marketplace app', async () => {
+    const w = await world();
+    // An app configured with meeting scopes but not user:read:user (Zoom would 400 on GET /users/me).
+    const { callback } = await connect('zoom', w.host, w.org, { scopes: ['meeting:write:meeting', 'meeting:read:meeting'] });
+    const location = new URL(callback.location!);
+    expect(location.pathname).toBe('/integrations');
+    expect(location.searchParams.get('error')).toBe('connect_failed');
+    expect(location.searchParams.get('message')).toBe(
+      'The Zoom app is missing scopes: user:read:user, meeting:update:meeting, meeting:delete:meeting. Add them on marketplace.zoom.us, then connect again.',
+    );
+    expect(await integrationRow(w.host.id, 'zoom')).toBeNull();
+  });
+
+  it('accepts apps configured with classic (non-granular) scopes', async () => {
+    const w = await world();
+    const { callback } = await connect('zoom', w.host, w.org, { scopes: ['meeting:write', 'user:read'] });
+    expect(callback.location).toBe('http://localhost:3000/integrations?connected=zoom');
+    expect((await integrationRow(w.host.id, 'zoom'))?.status).toBe('active');
+  });
+});
+
+describe('shareable connect link (/integrations/connect/:provider)', () => {
+  const openLink = (provider: string, headers?: Record<string, string>) =>
+    call(connectLinkRoute, { path: `/integrations/connect/${provider}`, params: { provider }, headers });
+  const finish = (grant: { code: string; state: string }) =>
+    call(oauthCallbackRoute, {
+      path: `/api/integrations/zoom/callback?code=${encodeURIComponent(grant.code)}&state=${encodeURIComponent(grant.state)}`,
+      params: { provider: 'zoom' },
+    });
+
+  it('starts OAuth for whoever is signed in to this browser and lands on the integrations page', async () => {
+    const w = await world();
+    await signIn(w.host, w.org);
+    const start = await openLink('zoom');
+    expect(start.status).toBe(303);
+    expect(start.headers.get('cache-control')).toBe('no-store');
+    expect(start.location).toMatch(/^https:\/\/zoom\.us\/oauth\/authorize\?/);
+    const done = await finish(zoom().authorize(start.location!));
+    expect(done.location).toBe('http://localhost:3000/integrations?connected=zoom');
+    expect((await integrationRow(w.host.id, 'zoom'))?.status).toBe('active');
+    signOut();
+  });
+
+  it('sends a browser that is not signed in to Calendor to sign in first, then back to the link', async () => {
+    signOut();
+    const res = await openLink('google');
+    expect(res.status).toBe(303);
+    expect(res.location).toBe('http://localhost:3000/login?next=%2Fintegrations%2Fconnect%2Fgoogle');
+  });
+
+  it('cannot attach an account to a different Calendor user than the one who opened the link', async () => {
+    const w = await world();
+    await signIn(w.host, w.org);
+    const grant = zoom().authorize((await openLink('zoom')).location!);
+    await signIn(w.recruiter, w.org); // the link was forwarded to, and completed in, someone else's session
+    const done = await finish(grant);
+    expect(new URL(done.location!).searchParams.get('error')).toBe('connect_failed');
+    expect(await integrationRow(w.recruiter.id, 'zoom')).toBeNull();
+    expect(await integrationRow(w.host.id, 'zoom')).toBeNull();
+    signOut();
+  });
+
+  it('answers client-side (RSC) navigations without starting OAuth, so the router does a full page load', async () => {
+    const w = await world();
+    await signIn(w.host, w.org);
+    const res = await openLink('zoom', { rsc: '1' });
+    expect(res.status).toBe(204);
+    expect(await db.select().from(oauthStates).where(eq(oauthStates.userId, w.host.id))).toHaveLength(0);
+    signOut();
+  });
+
+  it('rejects unknown providers', async () => {
+    const w = await world();
+    await signIn(w.host, w.org);
+    expect((await openLink('slack')).location).toBe('http://localhost:3000/integrations?error=unknown_provider');
+    signOut();
   });
 });

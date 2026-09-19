@@ -13,6 +13,7 @@ import { enqueueInterviewSync } from '../jobs/queue';
 import type { TimeRange } from '../scheduling/engine';
 import { decrypt, encrypt } from '../security/crypto';
 import { recordAudit } from '../services/audit';
+import { listEventsInRange, type ExternalEventDetails } from './google/calendar';
 import { calendarProviders, conferencingProviders, oauthAdapters } from './registry';
 import {
   IntegrationError,
@@ -151,11 +152,18 @@ export interface CalendarBusyResult {
 }
 
 const busyCache = new Map<string, { at: number; busy: TimeRange[] }>();
+const overlayCache = new Map<string, { at: number; overlay: CalendarOverlay }>();
 const BUSY_CACHE_TTL_MS = 30_000;
 
 export function invalidateBusyCache(integrationId?: string) {
-  if (!integrationId) return busyCache.clear();
-  for (const key of busyCache.keys()) if (key.startsWith(`${integrationId}:`)) busyCache.delete(key);
+  if (!integrationId) {
+    busyCache.clear();
+    overlayCache.clear();
+    return;
+  }
+  for (const cache of [busyCache, overlayCache]) {
+    for (const key of cache.keys()) if (key.startsWith(`${integrationId}:`)) cache.delete(key);
+  }
 }
 
 export class CalendarUnavailableError extends ServiceUnavailableError {
@@ -211,6 +219,67 @@ export async function getAvailability(
         .set({ lastError: err.message.slice(0, 1000), lastErrorAt: new Date() })
         .where(eq(integrations.id, integration.id));
     }
+    throw new CalendarUnavailableError();
+  }
+}
+
+export interface CalendarOverlay {
+  connected: boolean;
+  /** Events (with titles and guests) from calendars the user can read. */
+  events: (ExternalEventDetails & { calendarName: string })[];
+  /** Busy blocks from calendars shared with the user as free/busy only. */
+  busy: TimeRange[];
+}
+
+/**
+ * The user's *own* Google Calendar for Calendor's calendar view: event details from every
+ * "check for conflicts" calendar they can read, and plain busy blocks for calendars shared with
+ * them as free/busy only (or whose events can't be read). Never used to show one person's
+ * events to anyone else.
+ */
+export async function getCalendarOverlay(userId: string, range: TimeRange, zone: string): Promise<CalendarOverlay> {
+  const integration = await getIntegration(userId, 'google_calendar');
+  if (!integration) return { connected: false, events: [], busy: [] };
+  if (integration.status !== 'active') throw new CalendarUnavailableError();
+  const calendars = await db
+    .select({ id: integrationCalendars.externalCalendarId, name: integrationCalendars.name, accessRole: integrationCalendars.accessRole })
+    .from(integrationCalendars)
+    .where(and(eq(integrationCalendars.integrationId, integration.id), eq(integrationCalendars.checkConflicts, true)));
+  if (calendars.length === 0) return { connected: true, events: [], busy: [] };
+
+  const cacheKey = `${integration.id}:${range.start}:${range.end}:${zone}`;
+  const hit = overlayCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < BUSY_CACHE_TTL_MS) return hit.overlay;
+
+  const token = tokenSourceFor(integration.id);
+  const span = { start: new Date(range.start), end: new Date(range.end) };
+  try {
+    const perCalendar = await Promise.all(
+      calendars.map(async (c) => {
+        if (c.accessRole === 'freeBusyReader') return { busyOnly: c.id };
+        try {
+          const events = await listEventsInRange(token, c.id, span, zone);
+          return { events: events.map((e) => ({ ...e, calendarName: c.name })) };
+        } catch (err) {
+          if (isIntegrationError(err) && err.kind === 'auth') throw err;
+          return { busyOnly: c.id };
+        }
+      }),
+    );
+    const busyOnlyIds = perCalendar.flatMap((r) => (r.busyOnly ? [r.busyOnly] : []));
+    const busy = busyOnlyIds.length ? await calendarProviders.google_calendar!.getBusy(token, { calendarIds: busyOnlyIds, ...span }) : [];
+    // An invitation shows up (with the same id) on every calendar it's on; list it once.
+    const seen = new Set<string>();
+    const events = perCalendar
+      .flatMap((r) => r.events ?? [])
+      .filter((e) => !seen.has(e.id) && seen.add(e.id))
+      .sort((a, b) => a.start.getTime() - b.start.getTime());
+    const overlay = { connected: true, events, busy };
+    overlayCache.set(cacheKey, { at: Date.now(), overlay });
+    if (overlayCache.size > 200) overlayCache.delete(overlayCache.keys().next().value!);
+    return overlay;
+  } catch (err) {
+    console.warn(`[integrations] calendar overlay failed for integration ${integration.id}:`, (err as Error).message);
     throw new CalendarUnavailableError();
   }
 }

@@ -33,7 +33,7 @@ export default async function HomePage() {
           <p className="mb-5 inline-flex items-center gap-2 rounded-full bg-brand-50 px-3 py-1 text-sm font-medium text-brand-800 ring-1 ring-brand-200">Interview scheduling for hiring teams</p>
           <h1 className="text-4xl font-semibold tracking-tight text-zinc-900 sm:text-6xl">Book interviews without the back-and-forth.</h1>
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-zinc-600">
-            Share one link. Candidates pick a time that actually works for your interviewers, and Slate handles the Zoom meeting, the calendar event and every follow-up email.
+            Share one link. Candidates pick a time that actually works for your interviewers, and Calendor handles the Zoom meeting, the calendar event and every follow-up email.
           </p>
           <div className="mt-10 flex flex-wrap justify-center gap-3">
             <Button asChild size="lg">
@@ -60,7 +60,7 @@ export default async function HomePage() {
           </div>
         </section>
       </main>
-      <footer className="border-t border-zinc-100 py-8 text-center text-sm text-zinc-500">© {new Date().getFullYear()} Slate</footer>
+      <footer className="border-t border-zinc-100 py-8 text-center text-sm text-zinc-500">© {new Date().getFullYear()} Calendor</footer>
     </div>
   );
 }

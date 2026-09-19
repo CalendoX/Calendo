@@ -76,9 +76,13 @@ export interface FakeGoogleEvent {
   summary?: string;
   description?: string;
   location?: string;
-  start: { dateTime: string; timeZone?: string };
-  end: { dateTime: string; timeZone?: string };
-  attendees?: { email: string; displayName?: string }[];
+  /** `date` for all-day events, `dateTime` otherwise. */
+  start: { dateTime?: string; date?: string; timeZone?: string };
+  end: { dateTime?: string; date?: string; timeZone?: string };
+  transparency?: 'opaque' | 'transparent';
+  hangoutLink?: string;
+  organizer?: { email: string; displayName?: string };
+  attendees?: { email: string; displayName?: string; responseStatus?: string; organizer?: boolean; resource?: boolean; self?: boolean }[];
   extendedProperties?: { private?: Record<string, string> };
   sendUpdates?: string | null;
 }
@@ -101,6 +105,8 @@ class FakeGoogle {
   busy = new Map<string, { start: string; end: string }[]>();
   /** Calendars whose free/busy lookup reports an error (e.g. 'backendError'). */
   freeBusyErrors = new Map<string, string>();
+  /** Calendars whose event listing is refused (403), e.g. details not shared with the user. */
+  eventsForbidden = new Set<string>();
   events = new Map<string, FakeGoogleEvent>();
   channels = new Map<string, { calendarId: string; token: string; address: string; resourceId: string }>();
   revoked: string[] = [];
@@ -263,7 +269,15 @@ class FakeGoogle {
           const ids = new Set(this.changeLog.filter((c) => c.seq > since).map((c) => c.eventId));
           items = [...ids].map((id) => this.events.get(id)!).filter((e) => e && e.calendarId === calendarId);
         } else {
+          if (this.eventsForbidden.has(calendarId)) return json(403, { error: { code: 403, message: 'Forbidden', errors: [{ reason: 'forbidden' }] } });
           items = [...this.events.values()].filter((e) => e.calendarId === calendarId);
+          const timeMax = url.searchParams.get('timeMax');
+          if (timeMax) {
+            // Range listing (singleEvents=true): events overlapping [timeMin, timeMax).
+            const min = Date.parse(url.searchParams.get('timeMin')!);
+            const max = Date.parse(timeMax);
+            items = items.filter((e) => Date.parse(e.start.dateTime ?? e.start.date!) < max && Date.parse(e.end.dateTime ?? e.end.date!) > min);
+          }
         }
         return json(200, { kind: 'calendar#events', items: items.map(publicEvent), nextSyncToken: `sync-${this.seq}` });
       }
@@ -314,6 +328,9 @@ function publicEvent(e: FakeGoogleEvent) {
     location: e.location,
     start: e.start,
     end: e.end,
+    transparency: e.transparency,
+    hangoutLink: e.hangoutLink,
+    organizer: e.organizer,
     attendees: e.attendees,
     extendedProperties: e.extendedProperties,
   };
@@ -337,22 +354,30 @@ export interface FakeZoomMeeting {
   password: string;
 }
 
+/** Granular scopes a correctly configured Zoom Marketplace app grants. */
+export const ZOOM_FULL_SCOPES = ['user:read:user', 'meeting:write:meeting', 'meeting:update:meeting', 'meeting:delete:meeting', 'meeting:read:meeting'];
+
 class FakeZoom {
   account = { id: 'KdYKjnimT4KPd8FFgQt9FQ', email: 'priya@zoom.test', first_name: 'Priya', last_name: 'Nair', display_name: 'Priya Nair' };
   meetings = new Map<string, FakeZoomMeeting>();
   deleted: string[] = [];
   revoked: string[] = [];
 
-  private codes = new Map<string, { challenge: string; redirectUri: string }>();
+  private codes = new Map<string, { challenge: string; scopes: string[]; redirectUri: string }>();
   private accessTokens = new Set<string>();
   private refreshTokens = new Set<string>();
   private counter = 0;
   private nextMeetingId = 85_123_456_001;
 
-  authorize(authorizationUrl: string) {
+  /** Consent to the app. Zoom grants whatever scopes the Marketplace app has, simulated by `opts.scopes`. */
+  authorize(authorizationUrl: string, opts: { scopes?: string[] } = {}) {
     const url = new URL(authorizationUrl);
     const code = `z-code-${++this.counter}`;
-    this.codes.set(code, { challenge: url.searchParams.get('code_challenge') ?? '', redirectUri: url.searchParams.get('redirect_uri') ?? '' });
+    this.codes.set(code, {
+      challenge: url.searchParams.get('code_challenge') ?? '',
+      scopes: opts.scopes ?? ZOOM_FULL_SCOPES,
+      redirectUri: url.searchParams.get('redirect_uri') ?? '',
+    });
     return { code, state: url.searchParams.get('state') ?? '' };
   }
 
@@ -369,12 +394,12 @@ class FakeZoom {
     this.meetings.delete(id);
   }
 
-  private issue() {
+  private issue(scopes = ZOOM_FULL_SCOPES) {
     const access = `z-at-${++this.counter}`;
     const refresh = `z-rt-${++this.counter}`;
     this.accessTokens.add(access);
     this.refreshTokens.add(refresh);
-    return { access_token: access, token_type: 'bearer', refresh_token: refresh, expires_in: 3599, scope: 'meeting:write:meeting meeting:read:meeting user:read:user' };
+    return { access_token: access, token_type: 'bearer', refresh_token: refresh, expires_in: 3599, scope: scopes.join(' ') };
   }
 
   handle(method: string, url: URL, body: unknown, headers: Record<string, string>): Response {
@@ -388,7 +413,7 @@ class FakeZoom {
         this.codes.delete(form.code);
         if (!grant || grant.redirectUri !== form.redirect_uri) return json(400, { reason: 'Invalid authorization code', error: 'invalid_request' });
         if (s256(form.code_verifier ?? '') !== grant.challenge) return json(400, { reason: 'Invalid code verifier', error: 'invalid_grant' });
-        return json(200, this.issue());
+        return json(200, this.issue(grant.scopes));
       }
       if (form.grant_type === 'refresh_token') {
         // Zoom rotates refresh tokens: the old one stops working immediately.

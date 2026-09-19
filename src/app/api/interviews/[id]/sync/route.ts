@@ -6,7 +6,7 @@ import { enqueueInterviewSync } from '@/server/jobs/queue';
 import { recordAudit } from '@/server/services/audit';
 import { loadInterviewRow } from '../../_shared';
 
-/** Manually retry integration sync (also re-creates meetings/events deleted outside Slate). */
+/** Manually retry integration sync (also re-creates meetings/events deleted outside Calendor). */
 export const POST = apiRoute<{ id: string }>(async (req, { id }) => {
   const auth = await authenticate(req);
   const interview = await loadInterviewRow(id);

@@ -1,8 +1,8 @@
-# Slate — interview scheduling for hiring teams
+# Calendor — interview scheduling for hiring teams
 
-Slate is a multi-tenant scheduling platform for recruiters, interviewers and candidates. Interviewers
+Calendor is a multi-tenant scheduling platform for recruiters, interviewers and candidates. Interviewers
 publish booking pages for their interview types; candidates pick a time without creating an account;
-Slate books the interview, creates the Zoom meeting, puts it on the interviewer's Google Calendar,
+Calendor books the interview, creates the Zoom meeting, puts it on the interviewer's Google Calendar,
 emails everyone, sends reminders, and keeps all of it in sync through reschedules and cancellations.
 
 - **Scheduling engine**: working hours with split shifts, date overrides, vacation days and company
@@ -93,15 +93,15 @@ npm run db:seed      # demo organisations, users, event types and interviews
 Use two terminals:
 
 ```bash
-npm run dev          # web app on http://localhost:3001
+npm run dev          # web app on http://localhost:9000
 npm run worker:dev   # background worker: emails, reminders, Zoom/Calendar sync, webhooks
 ```
 
 The worker is required for emails and reminders. Bookings still work without it, and queued jobs
 run once it starts.
 
-Sign in at <http://localhost:3001/login> with one of the accounts below, or open a public booking
-page such as <http://localhost:3001/schedule/priya/technical-interview>.
+Sign in at <http://localhost:9000/login> with one of the accounts below, or open a public booking
+page such as <http://localhost:9000/schedule/priya/technical-interview>.
 
 To start over at any point: `npm run db:reset` (drops everything, migrates and seeds again).
 
@@ -154,7 +154,7 @@ All configuration is read from environment variables and validated at startup
 | `ZOOM_WEBHOOK_SECRET_TOKEN` | for Zoom webhooks | Secret Token from the app's Event Subscriptions. |
 | `WEBHOOK_BASE_URL` | no | Public HTTPS base for provider webhooks. Defaults to `APP_URL`. Google push channels are only registered when it is `https://`. |
 | `EMAIL_PROVIDER` | no | `smtp`, `resend` or `console` (default `console`). |
-| `EMAIL_FROM` / `EMAIL_REPLY_TO` | no | Sender address, e.g. `"Slate <scheduling@example.com>"`. |
+| `EMAIL_FROM` / `EMAIL_REPLY_TO` | no | Sender address, e.g. `"Calendor <scheduling@example.com>"`. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD` | for SMTP | Any SMTP service (Postmark, SES, SendGrid, Mailgun, Mailpit…). |
 | `RESEND_API_KEY` | for Resend | Resend HTTP API key. |
 | `WORKER_CONCURRENCY` | no | Parallel jobs per queue per worker process (default 5). |
@@ -171,12 +171,12 @@ database, so there is no Redis or other queue service to configure.
 ## Connecting Google Calendar
 
 Each interviewer connects their own Google account from **Integrations → Google Calendar**.
-Slate then:
+Calendor then:
 
 - reads free/busy from the calendars they choose, so busy times are never offered to candidates
 - writes each interview to the calendar they choose (details, candidate info, Zoom link, and a link
-  back to Slate), and updates or deletes it when the interview changes
-- registers push notifications, so events deleted or moved directly in Google are flagged in Slate
+  back to Calendor), and updates or deletes it when the interview changes
+- registers push notifications, so events deleted or moved directly in Google are flagged in Calendor
 
 ### Google Cloud setup
 
@@ -193,14 +193,14 @@ Slate then:
    production app needs Google's verification.
 4. **APIs & Services → Credentials → Create credentials → OAuth client ID → Web application**.
    Add the authorised redirect URI `${APP_URL}/api/integrations/google/callback`, for example
-   `http://localhost:3001/api/integrations/google/callback` in development.
+   `http://localhost:9000/api/integrations/google/callback` in development.
 5. Put the client ID and secret into `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` and restart.
 
 After connecting, each interviewer picks their calendars under **Integrations**: which to check for
 conflicts (the primary calendar by default), and which one receives new interviews.
 
 **Push notifications** need a public HTTPS URL. In development, run a tunnel (for example
-`cloudflared tunnel --url http://localhost:3001` or `ngrok http 3001`) and set `WEBHOOK_BASE_URL`
+`cloudflared tunnel --url http://localhost:9000` or `ngrok http 9000`) and set `WEBHOOK_BASE_URL`
 to its URL. Without it, everything else still works: availability is always read live from Google,
 and only the "deleted/moved in Google" detection is skipped.
 
@@ -209,7 +209,7 @@ and only the "deleted/moved in Google" detection is skipped.
 ## Connecting Zoom
 
 Each interviewer connects their own Zoom account. For interview types whose location is **Zoom**,
-Slate creates a meeting per interview at the right time, duration and time zone, with a waiting room
+Calendor creates a meeting per interview at the right time, duration and time zone, with a waiting room
 and the candidate as an invitee. The join link goes into the confirmation email and the calendar
 event. The meeting is updated on reschedule and deleted on cancellation. The host start URL is stored
 encrypted and only ever released to the interviewer, through a no-store redirect.
@@ -225,7 +225,7 @@ encrypted and only ever released to the interviewer, through a no-store redirect
    the Marketplace UI, because Zoom has renamed scopes over time.
 4. **Features → Event Subscriptions** (optional but recommended): endpoint
    `${WEBHOOK_BASE_URL}/api/webhooks/zoom`, events **Meeting deleted**, **Meeting updated** and
-   **App deauthorized**. Copy the **Secret Token** into `ZOOM_WEBHOOK_SECRET_TOKEN`. Slate answers
+   **App deauthorized**. Copy the **Secret Token** into `ZOOM_WEBHOOK_SECRET_TOKEN`. Calendor answers
    Zoom's endpoint URL validation automatically.
 5. Put the client ID and secret into `ZOOM_CLIENT_ID` / `ZOOM_CLIENT_SECRET` and restart.
 
@@ -274,7 +274,7 @@ tests/                    unit and integration tests
    availability is never trusted:
    - Free/busy is fetched **live** (never from cache). If the calendar can't be read, the request
      fails with `503 CALENDAR_UNAVAILABLE` rather than assuming the interviewer is free.
-   - Inside one transaction, Slate takes a per-interviewer `pg_advisory_xact_lock`, reloads the
+   - Inside one transaction, Calendor takes a per-interviewer `pg_advisory_xact_lock`, reloads the
      interviewer's interviews, and re-runs `checkSlot()` (the same code that produced the slots).
    - The interview, candidate, capability tokens, pending Zoom/Calendar records, notifications and
      audit entry are written, and the sync job is enqueued in the **same transaction**, so a

@@ -1,9 +1,9 @@
 'use client';
 
 import { DateTime } from 'luxon';
-import { Plus, Trash2 } from 'lucide-react';
+import { ImageIcon, Plus, Trash2, Upload } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { TimezoneSelect } from '@/components/scheduling/timezone-select';
 import { Badge } from '@/components/ui/badge';
@@ -32,6 +32,104 @@ export interface OrgSettingsValue {
   };
 }
 
+const LOGO_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+const MAX_LOGO_BYTES = 1024 * 1024;
+
+/** Uploads or removes the logo straight away, independently of the form's Save button. */
+function LogoUpload({ name, logoUrl, onChange }: { name: string; logoUrl: string | null; onChange: (logoUrl: string | null) => void }) {
+  const router = useRouter();
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState<'upload' | 'remove' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+
+  async function upload(file: File) {
+    setError(null);
+    if (file.type && !LOGO_TYPES.includes(file.type)) return setError('Upload a PNG, JPG, WebP or GIF image.');
+    if (file.size > MAX_LOGO_BYTES) return setError('The logo must be 1 MB or smaller.');
+    setBusy('upload');
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await api<{ logoUrl: string }>('/api/admin/organization/logo', { body: form });
+      onChange(res.logoUrl);
+      toast.success('Logo updated');
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? (err.fieldErrors.file ?? err.message) : errorMessage(err));
+    } finally {
+      setBusy(null);
+      if (input.current) input.current.value = '';
+    }
+  }
+
+  async function remove() {
+    setError(null);
+    setBusy('remove');
+    try {
+      await api('/api/admin/organization/logo', { method: 'DELETE' });
+      onChange(null);
+      toast.success('Logo removed');
+      router.refresh();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Field label="Logo" htmlFor="org-logo" optionalTag error={error} hint="PNG, JPG, WebP or GIF up to 1 MB. Shown instead of the organization name on booking pages and emails.">
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          const file = e.dataTransfer.files[0];
+          if (file && !busy) void upload(file);
+        }}
+        className={cn('flex items-center gap-3 rounded-lg border border-dashed p-2.5 transition-colors', dragging ? 'border-brand-500 bg-brand-50' : 'border-zinc-300')}
+      >
+        <div className="flex h-11 w-24 shrink-0 items-center justify-center overflow-hidden rounded-md bg-zinc-50">
+          {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logoUrl} alt={`${name} logo`} className="max-h-9 max-w-[88px] object-contain" />
+          ) : (
+            <ImageIcon className="size-5 text-zinc-300" aria-hidden="true" />
+          )}
+        </div>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Button type="button" variant="secondary" size="sm" loading={busy === 'upload'} disabled={busy !== null} onClick={() => input.current?.click()}>
+            {busy !== 'upload' && <Upload />}
+            {logoUrl ? 'Replace' : 'Upload logo'}
+          </Button>
+          {logoUrl && (
+            <Button type="button" variant="ghost" size="sm" loading={busy === 'remove'} disabled={busy !== null} onClick={remove}>
+              Remove
+            </Button>
+          )}
+          <span className="hidden text-xs text-zinc-400 xl:inline">or drop an image here</span>
+        </div>
+        <input
+          ref={input}
+          id="org-logo"
+          type="file"
+          accept={LOGO_TYPES.join(',')}
+          className="sr-only"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void upload(file);
+          }}
+        />
+      </div>
+    </Field>
+  );
+}
+
 const REMINDER_CHOICES = [10080, 2880, 1440, 240, 120, 60, 30, 15];
 
 export function OrgSettingsForm({ initial }: { initial: OrgSettingsValue }) {
@@ -50,7 +148,7 @@ export function OrgSettingsForm({ initial }: { initial: OrgSettingsValue }) {
         setBusy(true);
         setErrors({});
         try {
-          await api('/api/admin/organization', { method: 'PATCH', body: { ...v, logoUrl: v.logoUrl || null } });
+          await api('/api/admin/organization', { method: 'PATCH', body: v });
           toast.success('Organization settings saved');
           router.refresh();
         } catch (err) {
@@ -70,9 +168,7 @@ export function OrgSettingsForm({ initial }: { initial: OrgSettingsValue }) {
           <Field label="Default time zone" hint="Used for new members and org-wide reports.">
             <TimezoneSelect value={v.defaultTimezone} onChange={(tz) => setV({ ...v, defaultTimezone: tz })} />
           </Field>
-          <Field label="Logo URL" htmlFor="org-logo" optionalTag error={errors.logoUrl} hint="An https image URL. Shown instead of the organization name.">
-            <Input id="org-logo" value={v.logoUrl ?? ''} onChange={(e) => setV({ ...v, logoUrl: e.target.value })} placeholder="https://…/logo.png" />
-          </Field>
+          <LogoUpload name={v.name} logoUrl={v.logoUrl} onChange={(logoUrl) => setV({ ...v, logoUrl })} />
           <Field label="Brand colour" htmlFor="org-color" error={errors.brandColor}>
             <div className="flex items-center gap-2">
               <input type="color" aria-label="Pick brand colour" value={v.brandColor} onChange={(e) => setV({ ...v, brandColor: e.target.value })} className="h-9 w-12 cursor-pointer rounded-lg border border-zinc-300 bg-white p-1" />
@@ -139,7 +235,7 @@ export function OrgSettingsForm({ initial }: { initial: OrgSettingsValue }) {
           <label className="flex items-center justify-between gap-4">
             <span>
               <span className="block text-sm font-medium text-zinc-800">Add candidates as guests on Google Calendar events</span>
-              <span className="block text-xs text-zinc-500">When on, Google also emails the candidate its own invitation. When off, candidates get Slate’s calendar invite only.</span>
+              <span className="block text-xs text-zinc-500">When on, Google also emails the candidate its own invitation. When off, candidates get Calendor’s calendar invite only.</span>
             </span>
             <Switch checked={s.addCandidateAsCalendarAttendee} onCheckedChange={(c) => setS({ addCandidateAsCalendarAttendee: c })} />
           </label>
@@ -262,7 +358,7 @@ export function TemplatesEditor({ templates }: { templates: { type: string; subj
       </ul>
       <Dialog open={Boolean(editing)} onOpenChange={(o) => !o && setEditing(null)}>
         {editing && (
-          <DialogContent title={`Edit “${TEMPLATE_LABELS[editing.type]?.label ?? editing.type}” email`} description="Leave blank to use Slate’s default copy. Interview details, links and the calendar invite are always included.">
+          <DialogContent title={`Edit “${TEMPLATE_LABELS[editing.type]?.label ?? editing.type}” email`} description="Leave blank to use Calendor’s default copy. Interview details, links and the calendar invite are always included.">
             <form
               className="space-y-4"
               onSubmit={async (e) => {

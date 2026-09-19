@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon';
 
 /**
- * Slate scheduling engine.
+ * Calendor scheduling engine.
  *
  * A pure, dependency-free (apart from Luxon for IANA time-zone math) module that answers two
  * questions:

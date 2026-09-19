@@ -128,7 +128,7 @@ export async function verifyGoogleNotification(h: GoogleNotificationHeaders) {
 
 /**
  * Processes changes on a watched calendar: invalidates busy caches and flags interview events
- * that were deleted or moved outside Slate (we never silently reschedule the candidate).
+ * that were deleted or moved outside Calendor (we never silently reschedule the candidate).
  */
 export async function processCalendarChanges(channelId: string) {
   const [channel] = await db.select().from(calendarWatchChannels).where(eq(calendarWatchChannels.channelId, channelId)).limit(1);
@@ -187,7 +187,7 @@ export async function processCalendarChanges(channelId: string) {
             change: 'event_moved',
             externalStart: change.start.toISOString(),
             externalEnd: change.end.toISOString(),
-            note: 'The calendar event was moved in Google Calendar. The interview time is unchanged; reschedule in Slate to notify the candidate.',
+            note: 'The calendar event was moved in Google Calendar. The interview time is unchanged; reschedule in Calendor to notify the candidate.',
           },
         });
         flagged++;

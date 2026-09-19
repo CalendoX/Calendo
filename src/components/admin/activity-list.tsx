@@ -23,6 +23,8 @@ const VERBS: Record<string, string> = {
   'auth.email_verified': 'verified their email',
   'organization.created': 'created the organization',
   'organization.settings_updated': 'updated organization settings',
+  'organization.logo_updated': 'uploaded a new logo',
+  'organization.logo_removed': 'removed the logo',
   'organization.holiday_added': 'added a company holiday',
   'organization.holiday_removed': 'removed a company holiday',
   'notification_template.updated': 'updated an email template',
@@ -51,7 +53,7 @@ const VERBS: Record<string, string> = {
   'integration.calendars_updated': 'changed calendar settings',
   'integration.failure': 'reported an integration failure',
   'integration.recovered': 'recovered an integration',
-  'integration.external_change': 'detected a change outside Slate',
+  'integration.external_change': 'detected a change outside Calendor',
 };
 
 export function describeActivity(a: ActivityItem): string {

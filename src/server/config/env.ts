@@ -19,8 +19,8 @@ const optionalString = z
 
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  APP_URL: z.url().default('http://localhost:3001'),
-  APP_NAME: z.string().default('Slate'),
+  APP_URL: z.url().default('http://localhost:9000'),
+  APP_NAME: z.string().default('Calendor'),
 
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
@@ -46,7 +46,7 @@ const EnvSchema = z.object({
   WEBHOOK_BASE_URL: optionalString,
 
   EMAIL_PROVIDER: z.enum(['smtp', 'resend', 'console']).default('console'),
-  EMAIL_FROM: z.string().default('Slate <no-reply@localhost>'),
+  EMAIL_FROM: z.string().default('Calendor <no-reply@localhost>'),
   EMAIL_REPLY_TO: optionalString,
   SMTP_HOST: optionalString,
   SMTP_PORT: z.coerce.number().int().positive().default(587),

@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 import { authedRequest } from '../http';
 import {
   IntegrationError,
@@ -62,7 +63,7 @@ function eventBody(input: CalendarEventInput) {
     guestsCanModify: false,
     guestsCanInviteOthers: false,
     extendedProperties: { private: { slateInterviewId: input.interviewId } },
-    source: input.sourceUrl ? { title: 'Slate interview', url: input.sourceUrl } : undefined,
+    source: input.sourceUrl ? { title: 'Calendor interview', url: input.sourceUrl } : undefined,
   };
 }
 
@@ -296,4 +297,93 @@ export async function listChangedEvents(
     throw err;
   }
   return { events, nextSyncToken, reset: false };
+}
+
+/** An event on the user's own Google calendar, with the details shown in Calendor's calendar view. */
+export interface ExternalEventDetails {
+  id: string;
+  title: string;
+  start: Date;
+  end: Date;
+  allDay: boolean;
+  location: string | null;
+  videoUrl: string | null;
+  htmlLink: string | null;
+  organizer: { email: string; name: string | null } | null;
+  attendees: { email: string; name: string | null; responseStatus: string | null; organizer: boolean }[];
+}
+
+interface GoogleEventDetailsResponse {
+  items?: {
+    id: string;
+    status?: string;
+    summary?: string;
+    location?: string;
+    htmlLink?: string;
+    hangoutLink?: string;
+    transparency?: string;
+    start?: { dateTime?: string; date?: string };
+    end?: { dateTime?: string; date?: string };
+    organizer?: { email?: string; displayName?: string };
+    attendees?: { email?: string; displayName?: string; responseStatus?: string; organizer?: boolean; resource?: boolean; self?: boolean }[];
+    conferenceData?: { entryPoints?: { entryPointType?: string; uri?: string }[] };
+    extendedProperties?: { private?: Record<string, string> };
+  }[];
+  nextPageToken?: string;
+}
+
+/** Links from event data (which any organiser controls) are only kept if they're plain http(s). */
+const httpUrl = (u: string | undefined) => (u && /^https?:\/\//i.test(u) ? u : null);
+
+const EVENT_FIELDS =
+  'items(id,status,summary,location,htmlLink,hangoutLink,transparency,start,end,organizer(email,displayName),' +
+  'attendees(email,displayName,responseStatus,organizer,resource,self),conferenceData(entryPoints(entryPointType,uri)),extendedProperties),nextPageToken';
+
+/**
+ * Events that make the user busy between `start` and `end` on one calendar (recurring events
+ * expanded), with titles and guests. Mirrors free/busy: skips cancelled, "free" and declined
+ * events. Also skips Calendor's own interview events, which the calendar view shows already.
+ * All-day events (dates, not instants) are placed in `zone`.
+ */
+export async function listEventsInRange(token: AccessTokenSource, calendarId: string, range: { start: Date; end: Date }, zone: string): Promise<ExternalEventDetails[]> {
+  const out: ExternalEventDetails[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < 4; page++) {
+    const url = new URL(`${GOOGLE_CALENDAR_API}/calendars/${enc(calendarId)}/events`);
+    url.searchParams.set('timeMin', range.start.toISOString());
+    url.searchParams.set('timeMax', range.end.toISOString());
+    url.searchParams.set('singleEvents', 'true');
+    url.searchParams.set('orderBy', 'startTime');
+    url.searchParams.set('maxResults', '250');
+    url.searchParams.set('fields', EVENT_FIELDS);
+    if (pageToken) url.searchParams.set('pageToken', pageToken);
+    const { data } = await authedRequest<GoogleEventDetailsResponse>('google_calendar', token, { url: url.toString() }, 'List Google Calendar events');
+    for (const e of data.items ?? []) {
+      if (e.status === 'cancelled' || e.transparency === 'transparent') continue;
+      if (e.extendedProperties?.private?.slateInterviewId || e.id.startsWith('slate')) continue;
+      if (e.attendees?.some((a) => a.self && a.responseStatus === 'declined')) continue;
+      const allDay = !e.start?.dateTime;
+      const start = e.start?.dateTime ? new Date(e.start.dateTime) : e.start?.date ? DateTime.fromISO(e.start.date, { zone }).toJSDate() : null;
+      const end = e.end?.dateTime ? new Date(e.end.dateTime) : e.end?.date ? DateTime.fromISO(e.end.date, { zone }).toJSDate() : null;
+      if (!start || !end) continue;
+      out.push({
+        id: e.id,
+        title: e.summary?.trim() || '(No title)',
+        start,
+        end,
+        allDay,
+        location: e.location ?? null,
+        videoUrl: httpUrl(e.hangoutLink) ?? httpUrl(e.conferenceData?.entryPoints?.find((p) => p.entryPointType === 'video')?.uri),
+        htmlLink: httpUrl(e.htmlLink),
+        organizer: e.organizer?.email ? { email: e.organizer.email, name: e.organizer.displayName ?? null } : null,
+        attendees: (e.attendees ?? [])
+          .filter((a) => a.email && !a.resource)
+          .slice(0, 100)
+          .map((a) => ({ email: a.email!, name: a.displayName ?? null, responseStatus: a.responseStatus ?? null, organizer: Boolean(a.organizer) })),
+      });
+    }
+    pageToken = data.nextPageToken;
+    if (!pageToken) break;
+  }
+  return out;
 }

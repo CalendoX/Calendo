@@ -7,6 +7,23 @@ export const ZOOM_TOKEN_URL = 'https://zoom.us/oauth/token';
 export const ZOOM_REVOKE_URL = 'https://zoom.us/oauth/revoke';
 export const ZOOM_API = 'https://api.zoom.us/v2';
 
+/**
+ * Scopes Calendor's Zoom calls need. Zoom grants whatever the Marketplace app is configured with
+ * (they are not requested at authorisation time), so each is also satisfied by its admin variant
+ * or the equivalent classic scope.
+ */
+const ZOOM_REQUIRED_SCOPES: { scope: string; satisfiedBy: string[] }[] = [
+  { scope: 'user:read:user', satisfiedBy: ['user:read:user', 'user:read:user:admin', 'user:read', 'user:read:admin'] },
+  { scope: 'meeting:write:meeting', satisfiedBy: ['meeting:write:meeting', 'meeting:write:meeting:admin', 'meeting:write', 'meeting:write:admin'] },
+  { scope: 'meeting:update:meeting', satisfiedBy: ['meeting:update:meeting', 'meeting:update:meeting:admin', 'meeting:write', 'meeting:write:admin'] },
+  { scope: 'meeting:delete:meeting', satisfiedBy: ['meeting:delete:meeting', 'meeting:delete:meeting:admin', 'meeting:write', 'meeting:write:admin'] },
+  { scope: 'meeting:read:meeting', satisfiedBy: ['meeting:read:meeting', 'meeting:read:meeting:admin', 'meeting:read', 'meeting:read:admin', 'meeting:write', 'meeting:write:admin'] },
+];
+
+export function missingZoomScopes(granted: string[]): string[] {
+  return ZOOM_REQUIRED_SCOPES.filter((r) => !r.satisfiedBy.some((s) => granted.includes(s))).map((r) => r.scope);
+}
+
 interface ZoomTokenResponse {
   access_token: string;
   token_type?: string;

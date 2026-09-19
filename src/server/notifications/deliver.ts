@@ -108,7 +108,8 @@ export async function deliverNotification(notificationId: string, opts: { finalA
       kind: recipientKind,
       timezone: recipientKind === 'candidate' ? interview.candidateTimezone : host.timezone,
     },
-    organization: { name: organization.name, brandColor: organization.brandColor, logoUrl: organization.logoUrl },
+    // Uploaded logos are stored as app-relative paths; email clients need an absolute URL.
+    organization: { name: organization.name, brandColor: organization.brandColor, logoUrl: organization.logoUrl && new URL(organization.logoUrl, appUrl()).toString() },
     eventType: { name: eventType.name, durationMinutes: Math.round((interview.endAt.getTime() - interview.startAt.getTime()) / 60_000) },
     host: { name: host.name, email: host.email, title: host.title },
     candidate,
@@ -146,7 +147,7 @@ export async function deliverNotification(notificationId: string, opts: { finalA
   };
   const rendered = renderEmail(ctx);
 
-  // Calendar invitation: candidates always; hosts only when Slate is not writing to their calendar.
+  // Calendar invitation: candidates always; hosts only when Calendor is not writing to their calendar.
   const attachInvite =
     recipientKind === 'candidate'
       ? n.type !== 'reminder' && n.type !== 'host_booking_notification'
@@ -154,12 +155,12 @@ export async function deliverNotification(notificationId: string, opts: { finalA
   const isCancel = n.type === 'cancellation' || n.type === 'host_cancellation_notification';
   const message: EmailMessage = {
     to: { email: n.recipientEmail, name: n.recipientName },
-    fromName: `${organization.name} (via Slate)`,
+    fromName: `${organization.name} (via Calendor)`,
     replyTo: recipientKind === 'candidate' ? host.email : candidate.email,
     subject: rendered.subject,
     html: rendered.html,
     text: rendered.text,
-    headers: { 'X-Slate-Notification': n.id, 'X-Entity-Ref-ID': n.id },
+    headers: { 'X-Calendor-Notification': n.id, 'X-Entity-Ref-ID': n.id },
     icalEvent: attachInvite
       ? {
           method: isCancel ? 'CANCEL' : 'REQUEST',

@@ -9,6 +9,7 @@ import { recordAudit } from '../services/audit';
 import { googleCalendarProvider, stopWatchChannel } from './google/calendar';
 import { GOOGLE_SCOPES } from './google/oauth';
 import { ensureWatchChannels } from './google/watch';
+import { missingZoomScopes } from './zoom/oauth';
 import { oauthAdapters } from './registry';
 import { getIntegration, invalidateBusyCache, resyncFailedForUser, tokenSourceFor } from './service';
 import { isIntegrationError } from './types';
@@ -134,7 +135,16 @@ export async function completeOAuth(
     const missing = tokens.scopes.length ? required.filter((s) => !tokens.scopes.includes(s)) : [];
     if (missing.length) {
       await adapter.revoke(tokens.accessToken).catch(() => undefined);
-      throw new ValidationError('Calendar access was not granted. Please connect again and allow Slate to view and edit your calendar events.', {
+      throw new ValidationError('Calendar access was not granted. Please connect again and allow Calendor to view and edit your calendar events.', {
+        scopes: missing,
+      });
+    }
+  }
+  if (provider === 'zoom') {
+    // A Marketplace app missing scopes still authorises, then fails on the first API call; say which ones.
+    const missing = tokens.scopes.length ? missingZoomScopes(tokens.scopes) : [];
+    if (missing.length) {
+      throw new ValidationError(`The Zoom app is missing scopes: ${missing.join(', ')}. Add them on marketplace.zoom.us, then connect again.`, {
         scopes: missing,
       });
     }

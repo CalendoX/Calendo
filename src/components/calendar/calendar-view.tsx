@@ -1,7 +1,7 @@
 'use client';
 
 import { DateTime } from 'luxon';
-import { ArrowRight, ChevronLeft, ChevronRight, Clock, Globe2, User, Video } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronRight, Clock, ExternalLink, Globe2, MapPin, User, Users, Video } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { InterviewStatusBadge, SyncBadge } from '@/components/interviews/status-badge';
@@ -31,6 +31,25 @@ interface CalItem {
   calendarStatus: 'pending' | 'synced' | 'failed' | 'cancelled' | 'deleted_externally' | null;
 }
 
+/** An event from the user's own Google Calendar (see /api/calendar/busy). */
+interface ExternalEvent {
+  id: string;
+  calendarName: string;
+  title: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+  location: string | null;
+  videoUrl: string | null;
+  htmlLink: string | null;
+  organizer: { email: string; name: string | null } | null;
+  attendees: { email: string; name: string | null; responseStatus: string | null; organizer: boolean }[];
+}
+
+type GridEntry = { kind: 'interview'; interview: CalItem } | { kind: 'external'; event: ExternalEvent };
+
+const RESPONSE_LABELS: Record<string, string> = { accepted: 'Going', declined: 'Declined', tentative: 'Maybe', needsAction: 'Awaiting reply' };
+
 const HOUR_PX = 52;
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -49,9 +68,9 @@ function rangeFor(view: View, cursor: DateTime) {
 }
 
 /** Assigns side-by-side lanes to overlapping events within one day column. */
-function layoutDay(items: { item: CalItem; start: number; end: number }[]) {
+function layoutDay<T>(items: { item: T; start: number; end: number }[]) {
   const sorted = [...items].sort((a, b) => a.start - b.start || b.end - a.end);
-  const out: { item: CalItem; start: number; end: number; lane: number; lanes: number }[] = [];
+  const out: { item: T; start: number; end: number; lane: number; lanes: number }[] = [];
   let cluster: typeof out = [];
   let clusterEnd = -1;
   const flush = () => {
@@ -89,14 +108,24 @@ export function CalendarView({
   const [cursor, setCursor] = useState<DateTime>(() => DateTime.now().setZone(timezone));
   const [items, setItems] = useState<CalItem[] | null>(null);
   const [busy, setBusy] = useState<{ start: string; end: string }[]>([]);
+  const [external, setExternal] = useState<ExternalEvent[]>([]);
   const [busyState, setBusyState] = useState<'none' | 'ok' | 'unavailable'>('none');
   const [error, setError] = useState<string | null>(null);
   const [interviewerId, setInterviewerId] = useState('');
   const [showCancelled, setShowCancelled] = useState(false);
   const [selected, setSelected] = useState<CalItem | null>(null);
+  const [selectedExternal, setSelectedExternal] = useState<ExternalEvent | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const range = useMemo(() => rangeFor(view, cursor), [view, cursor]);
-  const now = DateTime.now().setZone(timezone);
+  // The current time only exists in the browser (and ticks every minute), so the "now" line and
+  // today's highlight can't disagree with the server-rendered HTML during hydration.
+  const [now, setNow] = useState<DateTime | null>(null);
+  useEffect(() => {
+    const tick = () => setNow(DateTime.now().setZone(timezone));
+    tick();
+    const id = setInterval(tick, 60_000);
+    return () => clearInterval(id);
+  }, [timezone]);
 
   const load = useCallback(
     async (signal: AbortSignal) => {
@@ -112,17 +141,20 @@ export function CalendarView({
       }
       if (view !== 'month' && scope === 'mine') {
         try {
-          const b = await api<{ connected: boolean; available: boolean; busy: { start: string; end: string }[] }>(
+          const b = await api<{ connected: boolean; available: boolean; events: ExternalEvent[]; busy: { start: string; end: string }[] }>(
             `/api/calendar/busy?start=${encodeURIComponent(range.start.toUTC().toISO()!)}&end=${encodeURIComponent(range.end.toUTC().toISO()!)}`,
             { signal },
           );
           setBusy(b.busy);
+          setExternal(b.events);
           setBusyState(!b.connected ? 'none' : b.available ? 'ok' : 'unavailable');
         } catch {
           setBusy([]);
+          setExternal([]);
         }
       } else {
         setBusy([]);
+        setExternal([]);
         setBusyState('none');
       }
     },
@@ -216,7 +248,7 @@ export function CalendarView({
             const iso = day.toISODate()!;
             const list = byDay.get(iso) ?? [];
             const inMonth = day.month === cursor.month;
-            const isToday = day.hasSame(now, 'day');
+            const isToday = now !== null && day.hasSame(now, 'day');
             return (
               <div key={iso} className={cn('min-h-[112px] border-b border-r border-zinc-100 p-1.5 [&:nth-child(7n)]:border-r-0', !inMonth && 'bg-zinc-50/60')}>
                 <button
@@ -264,7 +296,7 @@ export function CalendarView({
               {days.map((d) => (
                 <div key={d.toISODate()} className="px-2 py-2 text-center">
                   <p className="text-xs font-medium uppercase text-zinc-400">{d.toFormat('ccc')}</p>
-                  <p className={cn('mx-auto mt-0.5 flex size-8 items-center justify-center rounded-full text-sm font-semibold', d.hasSame(now, 'day') ? 'bg-brand-600 text-white' : 'text-zinc-800')}>{d.day}</p>
+                  <p className={cn('mx-auto mt-0.5 flex size-8 items-center justify-center rounded-full text-sm font-semibold', now && d.hasSame(now, 'day') ? 'bg-brand-600 text-white' : 'text-zinc-800')}>{d.day}</p>
                 </div>
               ))}
             </div>
@@ -281,60 +313,92 @@ export function CalendarView({
                   const dayStart = d.startOf('day');
                   const dayEnd = dayStart.plus({ days: 1 });
                   const toPx = (dt: DateTime) => (dt.diff(dayStart, 'minutes').minutes / 60) * HOUR_PX;
-                  const events = layoutDay(
-                    (byDay.get(d.toISODate()!) ?? []).map((item) => {
-                      const s = DateTime.fromISO(item.startAt, { zone: timezone });
-                      const e = DateTime.fromISO(item.endAt, { zone: timezone });
-                      return { item, start: toPx(s), end: Math.max(toPx(s) + 22, toPx(e < dayEnd ? e : dayEnd)) };
-                    }),
-                  );
-                  const dayBusy = busy
-                    .map((b) => ({ s: DateTime.fromISO(b.start, { zone: timezone }), e: DateTime.fromISO(b.end, { zone: timezone }) }))
+                  const place = (s: DateTime, e: DateTime) => {
+                    const start = toPx(s < dayStart ? dayStart : s);
+                    return { start, end: Math.max(start + 22, toPx(e < dayEnd ? e : dayEnd)) };
+                  };
+                  const entries = layoutDay<GridEntry>([
+                    ...(byDay.get(d.toISODate()!) ?? []).map((interview) => ({
+                      item: { kind: 'interview' as const, interview },
+                      ...place(DateTime.fromISO(interview.startAt, { zone: timezone }), DateTime.fromISO(interview.endAt, { zone: timezone })),
+                    })),
+                    ...external
+                      .filter((ev) => !ev.allDay)
+                      .map((event) => ({ event, s: DateTime.fromISO(event.start, { zone: timezone }), e: DateTime.fromISO(event.end, { zone: timezone }) }))
+                      .filter(({ s, e }) => s < dayEnd && e > dayStart)
+                      .map(({ event, s, e }) => ({ item: { kind: 'external' as const, event }, ...place(s, e) })),
+                  ]);
+                  // Behind the timed entries: all-day events, and busy time from free/busy-only calendars.
+                  const background = [
+                    ...external.filter((ev) => ev.allDay).map((event) => ({ event, start: event.start, end: event.end })),
+                    ...busy.map((b) => ({ event: null, start: b.start, end: b.end })),
+                  ]
+                    .map((b) => ({ ...b, s: DateTime.fromISO(b.start, { zone: timezone }), e: DateTime.fromISO(b.end, { zone: timezone }) }))
                     .filter((b) => b.s < dayEnd && b.e > dayStart);
                   return (
                     <div key={d.toISODate()} className="relative border-l border-zinc-100" style={{ height: HOUR_PX * 24 }}>
                       {Array.from({ length: 24 }, (_, h) => (
                         <div key={h} className="absolute inset-x-0 border-t border-zinc-100" style={{ top: h * HOUR_PX }} />
                       ))}
-                      {dayBusy.map((b, idx) => {
+                      {background.map((b, idx) => {
                         const top = toPx(b.s < dayStart ? dayStart : b.s);
                         const bottom = toPx(b.e > dayEnd ? dayEnd : b.e);
-                        return (
-                          <div
-                            key={idx}
-                            className="absolute inset-x-1 rounded-md border border-dashed border-zinc-300 bg-[repeating-linear-gradient(135deg,transparent,transparent_5px,rgba(0,0,0,0.035)_5px,rgba(0,0,0,0.035)_10px)] px-1.5 pt-0.5 text-[10px] font-medium text-zinc-400"
-                            style={{ top, height: Math.max(bottom - top, 14) }}
-                            title="Busy in Google Calendar"
-                          >
+                        const className =
+                          'absolute inset-x-1 truncate rounded-md border border-dashed border-zinc-300 bg-[repeating-linear-gradient(135deg,transparent,transparent_5px,rgba(0,0,0,0.035)_5px,rgba(0,0,0,0.035)_10px)] px-1.5 pt-0.5 text-left text-[10px] font-medium text-zinc-500';
+                        const style = { top, height: Math.max(bottom - top, 14) };
+                        return b.event ? (
+                          <button key={`bg-${b.event.id}`} onClick={() => setSelectedExternal(b.event)} className={cn(className, 'hover:bg-zinc-100')} style={style}>
+                            {b.event.title} · all day
+                          </button>
+                        ) : (
+                          <div key={`busy-${idx}`} className={className} style={style} title="Busy in Google Calendar (details not shared with you)">
                             Busy
                           </div>
                         );
                       })}
-                      {events.map(({ item, start, end, lane, lanes }) => (
-                        <button
-                          key={item.id}
-                          onClick={() => setSelected(item)}
-                          className={cn(
-                            'absolute overflow-hidden rounded-md border-l-[3px] px-1.5 py-1 text-left text-xs shadow-sm ring-1 ring-black/5 transition hover:z-10 hover:shadow-md',
-                            item.status === 'cancelled' ? 'bg-zinc-100 text-zinc-400 line-through' : 'bg-white',
-                          )}
-                          style={{
-                            top: start,
-                            height: end - start - 2,
-                            left: `calc(${(lane / lanes) * 100}% + 3px)`,
-                            width: `calc(${100 / lanes}% - 6px)`,
-                            borderLeftColor: item.eventType.color,
-                            backgroundColor: item.status === 'cancelled' ? undefined : `${item.eventType.color}12`,
-                          }}
-                        >
-                          <span className="block truncate font-semibold text-zinc-900">{item.candidate.name}</span>
-                          <span className="tabular block truncate text-zinc-500">
-                            {DateTime.fromISO(item.startAt, { zone: timezone }).toFormat('h:mm')} – {DateTime.fromISO(item.endAt, { zone: timezone }).toFormat('h:mm a')}
-                          </span>
-                          {end - start > 60 && <span className="block truncate text-zinc-500">{item.eventType.name}</span>}
-                        </button>
-                      ))}
-                      {d.hasSame(now, 'day') && (
+                      {entries.map(({ item: entry, start, end, lane, lanes }) => {
+                        const position = { top: start, height: end - start - 2, left: `calc(${(lane / lanes) * 100}% + 3px)`, width: `calc(${100 / lanes}% - 6px)` };
+                        if (entry.kind === 'external') {
+                          const ev = entry.event;
+                          return (
+                            <button
+                              key={`x-${ev.id}`}
+                              onClick={() => setSelectedExternal(ev)}
+                              className="absolute overflow-hidden rounded-md border-l-[3px] border-l-zinc-400 bg-zinc-100 px-1.5 py-1 text-left text-xs ring-1 ring-black/5 transition hover:z-10 hover:shadow-md"
+                              style={position}
+                            >
+                              <span className="block truncate font-semibold text-zinc-700">{ev.title}</span>
+                              <span className="tabular block truncate text-zinc-500">
+                                {DateTime.fromISO(ev.start, { zone: timezone }).toFormat('h:mm')} – {DateTime.fromISO(ev.end, { zone: timezone }).toFormat('h:mm a')}
+                              </span>
+                              {end - start > 60 && <span className="block truncate text-zinc-400">{ev.calendarName}</span>}
+                            </button>
+                          );
+                        }
+                        const item = entry.interview;
+                        return (
+                          <button
+                            key={item.id}
+                            onClick={() => setSelected(item)}
+                            className={cn(
+                              'absolute overflow-hidden rounded-md border-l-[3px] px-1.5 py-1 text-left text-xs shadow-sm ring-1 ring-black/5 transition hover:z-10 hover:shadow-md',
+                              item.status === 'cancelled' ? 'bg-zinc-100 text-zinc-400 line-through' : 'bg-white',
+                            )}
+                            style={{
+                              ...position,
+                              borderLeftColor: item.eventType.color,
+                              backgroundColor: item.status === 'cancelled' ? undefined : `${item.eventType.color}12`,
+                            }}
+                          >
+                            <span className="block truncate font-semibold text-zinc-900">{item.candidate.name}</span>
+                            <span className="tabular block truncate text-zinc-500">
+                              {DateTime.fromISO(item.startAt, { zone: timezone }).toFormat('h:mm')} – {DateTime.fromISO(item.endAt, { zone: timezone }).toFormat('h:mm a')}
+                            </span>
+                            {end - start > 60 && <span className="block truncate text-zinc-500">{item.eventType.name}</span>}
+                          </button>
+                        );
+                      })}
+                      {now && d.hasSame(now, 'day') && (
                         <div className="pointer-events-none absolute inset-x-0 z-10 flex items-center" style={{ top: toPx(now) }}>
                           <span className="-ml-1 size-2 rounded-full bg-rose-500" />
                           <span className="h-px flex-1 bg-rose-500" />
@@ -352,8 +416,8 @@ export function CalendarView({
               <p className="text-xs text-zinc-500">
                 {(items ?? []).filter((i) => i.status !== 'cancelled').length} interviews · {zoneLabel(timezone)}
               </p>
-              {busyState === 'ok' && <p className="mt-1 text-xs text-zinc-400">Striped blocks are busy times from Google Calendar.</p>}
-              {busyState === 'unavailable' && <p className="mt-1 text-xs text-amber-700">Google Calendar busy times couldn’t be loaded.</p>}
+              {busyState === 'ok' && <p className="mt-1 text-xs text-zinc-400">Grey blocks are events from your Google Calendar.</p>}
+              {busyState === 'unavailable' && <p className="mt-1 text-xs text-amber-700">Google Calendar events couldn’t be loaded.</p>}
             </div>
             <ul className="scrollbar-thin max-h-[640px] divide-y divide-zinc-100 overflow-y-auto">
               {(items ?? []).length === 0 && <li className="px-4 py-8 text-center text-sm text-zinc-500">No interviews</li>}
@@ -417,6 +481,81 @@ export function CalendarView({
           </DialogContent>
         )}
       </Dialog>
+
+      <Dialog open={Boolean(selectedExternal)} onOpenChange={(o) => !o && setSelectedExternal(null)}>
+        {selectedExternal && (
+          <ExternalEventDetails event={selectedExternal} timezone={timezone} />
+        )}
+      </Dialog>
     </Card>
+  );
+}
+
+function ExternalEventDetails({ event, timezone }: { event: ExternalEvent; timezone: string }) {
+  const start = DateTime.fromISO(event.start, { zone: timezone });
+  const end = DateTime.fromISO(event.end, { zone: timezone });
+  const lastDay = end.minus({ days: 1 });
+  return (
+    <DialogContent title={event.title} description={`Google Calendar · ${event.calendarName}`} size="sm">
+      <ul className="space-y-3 text-sm text-zinc-700">
+        <li className="flex gap-3">
+          <Clock className="mt-0.5 size-4 shrink-0 text-zinc-400" />
+          <span>
+            {event.allDay && !lastDay.hasSame(start, 'day') ? `${start.toFormat('cccc, LLLL d')} – ${lastDay.toFormat('cccc, LLLL d')}` : start.toFormat('cccc, LLLL d')}
+            <br />
+            <span className="tabular text-zinc-500">{event.allDay ? 'All day' : `${start.toFormat('h:mm a')} – ${end.toFormat('h:mm a ZZZZ')}`}</span>
+          </span>
+        </li>
+        {event.location && (
+          <li className="flex gap-3">
+            <MapPin className="mt-0.5 size-4 shrink-0 text-zinc-400" /> <span className="min-w-0 break-words">{event.location}</span>
+          </li>
+        )}
+        {event.videoUrl && (
+          <li className="flex gap-3">
+            <Video className="mt-0.5 size-4 shrink-0 text-zinc-400" />
+            <a href={event.videoUrl} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate font-medium text-brand-700 hover:underline">
+              Join video call
+            </a>
+          </li>
+        )}
+        {event.attendees.length > 0 ? (
+          <li className="flex gap-3">
+            <Users className="mt-0.5 size-4 shrink-0 text-zinc-400" />
+            <div className="min-w-0 flex-1">
+              <p className="text-zinc-500">
+                {event.attendees.length} {event.attendees.length === 1 ? 'guest' : 'guests'}
+              </p>
+              <ul className="scrollbar-thin mt-1 max-h-48 space-y-1 overflow-y-auto">
+                {event.attendees.map((a) => (
+                  <li key={a.email} className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate" title={a.email}>
+                      {a.name ?? a.email}
+                      {a.organizer && <span className="text-zinc-400"> · organizer</span>}
+                    </span>
+                    {a.responseStatus && <span className="shrink-0 text-xs text-zinc-400">{RESPONSE_LABELS[a.responseStatus] ?? a.responseStatus}</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </li>
+        ) : (
+          event.organizer && (
+            <li className="flex gap-3">
+              <User className="mt-0.5 size-4 shrink-0 text-zinc-400" /> Organized by {event.organizer.name ?? event.organizer.email}
+            </li>
+          )
+        )}
+      </ul>
+      {event.htmlLink && (
+        <DialogFooter>
+          <Button asChild variant="secondary">
+            <a href={event.htmlLink} target="_blank" rel="noopener noreferrer">
+              Open in Google Calendar <ExternalLink />
+            </a>
+          </Button>
+        </DialogFooter>
+      )}
+    </DialogContent>
   );
 }

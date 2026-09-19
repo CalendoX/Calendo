@@ -1,6 +1,5 @@
 'use client';
 
-import { DateTime } from 'luxon';
 import { MoreHorizontal, Search, UserPlus } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -15,6 +14,7 @@ import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownTrigger } from '@/components/ui/dropdown';
 import { Field } from '@/components/ui/field';
 import { Input, Select } from '@/components/ui/input';
+import { RelativeTime } from '@/components/ui/relative-time';
 import { api, ApiError, errorMessage } from '@/lib/api-client';
 
 type Role = 'admin' | 'recruiter' | 'interviewer';
@@ -162,7 +162,7 @@ export function UsersAdmin({ members, currentUserId, openInvite }: { members: Ad
                 </td>
                 <td className="tabular px-3 py-3 text-right text-zinc-700">{m.upcomingInterviews}</td>
                 <td className="tabular px-3 py-3 text-right text-zinc-700">{m.totalInterviews}</td>
-                <td className="px-3 py-3 text-xs text-zinc-500">{m.lastLoginAt ? DateTime.fromISO(m.lastLoginAt).toRelative() : 'Never'}</td>
+                <td className="px-3 py-3 text-xs text-zinc-500">{m.lastLoginAt ? <RelativeTime iso={m.lastLoginAt} /> : 'Never'}</td>
                 <td className="py-3 pl-3 pr-5 text-right">
                   <Dropdown>
                     <DropdownTrigger asChild>

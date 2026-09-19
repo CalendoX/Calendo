@@ -2,14 +2,17 @@ import { DateTime } from 'luxon';
 import { CheckCircle2, XCircle } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { ConnectButton } from '@/components/integrations/integration-card';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { CopyButton } from '@/components/ui/copy-button';
 import { PageHeader } from '@/components/ui/page-header';
 import { requireAdminPage } from '@/server/auth/page-guards';
 import { db } from '@/server/db/client';
 import { integrations, users } from '@/server/db/schema';
+import { listIntegrationsForUser } from '@/server/integrations/connections';
 import { getSystemStatus } from '@/server/services/system-service';
 import { and, eq } from 'drizzle-orm';
 
@@ -17,7 +20,7 @@ export const metadata: Metadata = { title: 'Integrations (admin)' };
 
 export default async function AdminIntegrationsPage() {
   const auth = await requireAdminPage();
-  const [rows, status] = await Promise.all([
+  const [rows, status, mine] = await Promise.all([
     db
       .select({
         userId: users.id,
@@ -33,6 +36,7 @@ export default async function AdminIntegrationsPage() {
       .where(and(eq(integrations.organizationId, auth.organization.id)))
       .orderBy(users.name),
     getSystemStatus(),
+    listIntegrationsForUser(auth.user.id),
   ]);
   const zone = auth.user.timezone;
   const Check = ({ ok }: { ok: boolean }) => (ok ? <CheckCircle2 className="size-4 text-emerald-600" /> : <XCircle className="size-4 text-rose-500" />);
@@ -42,31 +46,53 @@ export default async function AdminIntegrationsPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         {(
           [
-            ['Google Calendar', status.google.configured, status.google.redirectUri, status.google.webhookUrl, status.google.pushSupported ? 'Push notifications enabled' : 'Push notifications need an https WEBHOOK_BASE_URL'],
-            ['Zoom', status.zoom.configured, status.zoom.redirectUri, status.zoom.webhookUrl, status.zoom.webhookConfigured ? 'Webhook secret configured' : 'ZOOM_WEBHOOK_SECRET_TOKEN not set'],
+            ['google_calendar', 'Google Calendar', status.google.configured, status.google.redirectUri, status.google.webhookUrl, status.google.pushSupported ? 'Push notifications enabled' : 'Push notifications need an https WEBHOOK_BASE_URL'],
+            ['zoom', 'Zoom', status.zoom.configured, status.zoom.redirectUri, status.zoom.webhookUrl, status.zoom.webhookConfigured ? 'Webhook secret configured' : 'ZOOM_WEBHOOK_SECRET_TOKEN not set'],
           ] as const
-        ).map(([name, configured, redirect, webhook, note]) => (
-          <Card key={name}>
-            <CardHeader title={name} action={<Badge tone={configured ? 'green' : 'amber'}>{configured ? 'OAuth configured' : 'Not configured'}</Badge>} />
-            <CardBody className="space-y-3 text-sm">
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">OAuth redirect URI</p>
-                <div className="mt-1 flex items-center gap-2">
-                  <code className="min-w-0 flex-1 truncate rounded bg-zinc-50 px-2 py-1 text-xs">{redirect ?? '—'}</code>
-                  {redirect && <CopyButton value={redirect} iconOnly label="Copy redirect URI" />}
+        ).map(([provider, name, configured, redirect, webhook, note]) => {
+          const own = mine.find((i) => i.provider === provider);
+          const broken = own?.status === 'error';
+          return (
+            <Card key={name}>
+              <CardHeader title={name} action={<Badge tone={configured ? 'green' : 'amber'}>{configured ? 'OAuth configured' : 'Not configured'}</Badge>} />
+              <CardBody className="space-y-3 text-sm">
+                {/* Each member connects their own account; admins can do it from here as well. */}
+                <div className="flex items-center justify-between gap-3 rounded-lg bg-zinc-50 px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">Your account</p>
+                    <p className={broken ? 'mt-0.5 truncate text-rose-600' : 'mt-0.5 truncate text-zinc-700'}>
+                      {own?.connected ? (broken ? 'Reconnect required' : (own.accountEmail ?? 'Connected')) : 'Not connected'}
+                    </p>
+                  </div>
+                  {own?.connected && !broken ? (
+                    <Button asChild variant="secondary" size="sm">
+                      <Link href="/integrations">Manage</Link>
+                    </Button>
+                  ) : (
+                    <ConnectButton provider={provider} configured={configured} size="sm">
+                      {broken ? 'Reconnect' : undefined}
+                    </ConnectButton>
+                  )}
                 </div>
-              </div>
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">Webhook endpoint</p>
-                <div className="mt-1 flex items-center gap-2">
-                  <code className="min-w-0 flex-1 truncate rounded bg-zinc-50 px-2 py-1 text-xs">{webhook}</code>
-                  <CopyButton value={webhook} iconOnly label="Copy webhook URL" />
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">OAuth redirect URI</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <code className="min-w-0 flex-1 truncate rounded bg-zinc-50 px-2 py-1 text-xs">{redirect ?? '—'}</code>
+                    {redirect && <CopyButton value={redirect} iconOnly label="Copy redirect URI" />}
+                  </div>
                 </div>
-              </div>
-              <p className="text-xs text-zinc-500">{note}</p>
-            </CardBody>
-          </Card>
-        ))}
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">Webhook endpoint</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <code className="min-w-0 flex-1 truncate rounded bg-zinc-50 px-2 py-1 text-xs">{webhook}</code>
+                    <CopyButton value={webhook} iconOnly label="Copy webhook URL" />
+                  </div>
+                </div>
+                <p className="text-xs text-zinc-500">{note}</p>
+              </CardBody>
+            </Card>
+          );
+        })}
       </div>
 
       <Card className="mt-6">

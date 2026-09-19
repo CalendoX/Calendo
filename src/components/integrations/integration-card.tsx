@@ -1,16 +1,17 @@
 'use client';
 
-import { DateTime } from 'luxon';
 import { AlertTriangle, CheckCircle2, RefreshCw, Unplug } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, type ButtonProps } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { CopyButton } from '@/components/ui/copy-button';
 import { Select } from '@/components/ui/input';
+import { RelativeTime } from '@/components/ui/relative-time';
 import { Switch } from '@/components/ui/switch';
 import { api, errorMessage } from '@/lib/api-client';
 
@@ -52,27 +53,79 @@ const META = {
   },
 } as const;
 
+/**
+ * Connects Google / Zoom via the shareable /integrations/connect/[provider] link: opens it in a new
+ * tab, or copies it to authorise from another browser. Refreshes this page whenever the user comes
+ * back to it, so a connection made elsewhere shows up here too.
+ */
+export function ConnectButton({
+  provider,
+  configured,
+  children,
+  size = 'md',
+}: {
+  provider: IntegrationSummaryDto['provider'];
+  configured: boolean;
+  children?: React.ReactNode;
+  size?: ButtonProps['size'];
+}) {
+  const router = useRouter();
+  const meta = META[provider];
+  const path = `/integrations/connect/${meta.slug}`;
+  const [awaitingReturn, setAwaitingReturn] = useState(false);
+
+  useEffect(() => {
+    if (!awaitingReturn) return;
+    const refresh = () => {
+      if (document.visibilityState === 'visible') router.refresh();
+    };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    const stop = setTimeout(() => setAwaitingReturn(false), 15 * 60_000);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+      clearTimeout(stop);
+    };
+  }, [awaitingReturn, router]);
+
+  const label = children ?? `Connect ${meta.name}`;
+  if (!configured) {
+    return (
+      <Button size={size} disabled>
+        {label}
+      </Button>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <Button asChild size={size}>
+        <a href={path} target="_blank" rel="noopener" onClick={() => setAwaitingReturn(true)}>
+          {label}
+        </a>
+      </Button>
+      <CopyButton
+        iconOnly
+        size={size}
+        value={() => new URL(path, window.location.origin).href}
+        label={`Copy link to connect ${meta.name} from another browser`}
+        title="Copy link to connect from another browser"
+        copiedMessage="Link copied. Open it in any browser — you’ll sign in to Calendor there first if needed."
+        onCopied={() => setAwaitingReturn(true)}
+      />
+    </span>
+  );
+}
+
 export function IntegrationCard({ integration, pushNotifications }: { integration: IntegrationSummaryDto; pushNotifications: boolean }) {
   const router = useRouter();
   const meta = META[integration.provider];
-  const [connecting, setConnecting] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [calendars, setCalendars] = useState(integration.calendars);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const writeTarget = calendars.find((c) => c.isWriteTarget)?.id ?? '';
   const dirty = JSON.stringify(calendars) !== JSON.stringify(integration.calendars);
-
-  async function connect() {
-    setConnecting(true);
-    try {
-      const res = await api<{ url: string }>(`/api/integrations/${meta.slug}/connect`, { body: { returnTo: '/integrations' } });
-      window.location.assign(res.url);
-    } catch (err) {
-      toast.error(errorMessage(err));
-      setConnecting(false);
-    }
-  }
 
   const error = integration.status === 'error';
 
@@ -101,7 +154,12 @@ export function IntegrationCard({ integration, pushNotifications }: { integratio
           {integration.connected && (
             <p className="mt-2 text-sm text-zinc-600">
               <span className="font-medium text-zinc-800">{integration.accountEmail ?? 'Connected account'}</span>
-              {integration.connectedAt && <span className="text-zinc-400"> · connected {DateTime.fromISO(integration.connectedAt).toRelative()}</span>}
+              {integration.connectedAt && (
+                <span className="text-zinc-400">
+                  {' '}
+                  · connected <RelativeTime iso={integration.connectedAt} />
+                </span>
+              )}
             </p>
           )}
           {!integration.configured && (
@@ -110,7 +168,7 @@ export function IntegrationCard({ integration, pushNotifications }: { integratio
             </Alert>
           )}
           {error && integration.lastError && (
-            <Alert tone="error" className="mt-4" title="Slate lost access to this account">
+            <Alert tone="error" className="mt-4" title="Calendor lost access to this account">
               {integration.lastError}
               {integration.provider === 'google_calendar' && ' Booking pages are paused until you reconnect, so candidates can’t double-book you.'}
             </Alert>
@@ -120,18 +178,16 @@ export function IntegrationCard({ integration, pushNotifications }: { integratio
           {integration.connected ? (
             <>
               {error && (
-                <Button onClick={connect} loading={connecting} disabled={!integration.configured}>
+                <ConnectButton provider={integration.provider} configured={integration.configured}>
                   Reconnect
-                </Button>
+                </ConnectButton>
               )}
               <Button variant="secondary" onClick={() => setConfirm(true)}>
                 <Unplug /> Disconnect
               </Button>
             </>
           ) : (
-            <Button onClick={connect} loading={connecting} disabled={!integration.configured}>
-              Connect {meta.name}
-            </Button>
+            <ConnectButton provider={integration.provider} configured={integration.configured} />
           )}
         </div>
       </div>

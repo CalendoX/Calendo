@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1.7
 #
-# Slate production images. Two runtime targets share one build:
+# Calendor production images. Two runtime targets share one build:
 #
-#   docker build --target web    -t slate-web .      # Next.js server (standalone output)
-#   docker build --target worker -t slate-worker .   # background jobs; also runs migrations:
-#                                                   #   docker run --rm slate-worker node dist/migrate.js
+#   docker build --target web    -t calendor-web .      # Next.js server (standalone output)
+#   docker build --target worker -t calendor-worker .   # background jobs; also runs migrations:
+#                                                      #   docker run --rm calendor-worker node dist/migrate.js
 #
 # Runtime configuration comes exclusively from environment variables (see .env.example);
 # no secrets are baked into the images.

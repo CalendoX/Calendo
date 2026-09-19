@@ -6,7 +6,7 @@ import { Toaster } from 'sonner';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: { default: 'Slate — Interview scheduling for hiring teams', template: '%s · Slate' },
+  title: { default: 'Calendor — Interview scheduling for hiring teams', template: '%s · Calendor' },
   description: 'Schedule interviews without the back-and-forth. Calendar-aware availability, Zoom meetings and reminders for recruiters and candidates.',
   robots: { index: false, follow: false },
 };

@@ -19,6 +19,8 @@ export type AuditAction =
   | 'auth.email_verified'
   | 'organization.created'
   | 'organization.settings_updated'
+  | 'organization.logo_updated'
+  | 'organization.logo_removed'
   | 'organization.holiday_added'
   | 'organization.holiday_removed'
   | 'notification_template.updated'

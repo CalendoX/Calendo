@@ -1,5 +1,5 @@
 /**
- * Browser-side JSON client for the Slate REST API. Errors are normalised into ApiError so forms
+ * Browser-side JSON client for the Calendor REST API. Errors are normalised into ApiError so forms
  * can show field-level messages (`error.fieldErrors`).
  */
 
@@ -27,14 +27,16 @@ export class ApiError extends Error {
 type Method = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
 export async function api<T = unknown>(path: string, opts: { method?: Method; body?: unknown; headers?: Record<string, string>; signal?: AbortSignal } = {}): Promise<T> {
+  // FormData (file uploads) is sent as-is so the browser sets the multipart boundary.
+  const isForm = opts.body instanceof FormData;
   const res = await fetch(path, {
     method: opts.method ?? (opts.body !== undefined ? 'POST' : 'GET'),
     headers: {
       Accept: 'application/json',
-      ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(opts.body !== undefined && !isForm ? { 'Content-Type': 'application/json' } : {}),
       ...opts.headers,
     },
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    body: isForm ? (opts.body as FormData) : opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     credentials: 'same-origin',
     cache: 'no-store',
     signal: opts.signal,

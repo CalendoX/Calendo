@@ -33,8 +33,11 @@ export async function call<T = any, P extends Record<string, string> = Record<st
   const headers: Record<string, string> = { 'user-agent': 'vitest', ...opts.headers };
   if (opts.ip) headers['x-forwarded-for'] = opts.ip;
   if (opts.origin !== false && method !== 'GET') headers.origin = typeof opts.origin === 'string' ? opts.origin : 'http://localhost:3000';
-  let body: string | undefined;
-  if (opts.body !== undefined) {
+  let body: string | FormData | undefined;
+  if (opts.body instanceof FormData) {
+    // multipart/form-data: the Request sets the content type (with boundary) itself.
+    body = opts.body;
+  } else if (opts.body !== undefined) {
     headers['content-type'] ??= 'application/json';
     body = typeof opts.body === 'string' ? opts.body : JSON.stringify(opts.body);
   }

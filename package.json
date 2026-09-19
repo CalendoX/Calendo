@@ -1,17 +1,17 @@
 {
-  "name": "slate-scheduling",
+  "name": "calendor-scheduling",
   "version": "1.0.0",
   "private": true,
-  "description": "Slate — interview scheduling platform for hiring teams",
+  "description": "Calendor — interview scheduling platform for hiring teams",
   "type": "module",
   "engines": {
     "node": ">=22.12.0"
   },
   "scripts": {
-    "dev": "next dev -p 3001",
+    "dev": "next dev -p 9000",
     "build": "next build && npm run build:worker",
     "build:worker": "node scripts/build-worker.mjs",
-    "start": "next start -p 3001",
+    "start": "next start -p 9000",
     "worker": "node dist/worker.js",
     "worker:dev": "tsx watch --clear-screen=false src/worker/index.ts",
     "typecheck": "tsc --noEmit",

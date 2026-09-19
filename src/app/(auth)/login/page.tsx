@@ -17,7 +17,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       <p className="mb-8 mt-1.5 text-sm text-zinc-500">Sign in to manage your interviews.</p>
       <LoginForm next={target} />
       <p className="mt-8 text-center text-sm text-zinc-500">
-        New to Slate?{' '}
+        New to Calendor?{' '}
         <Link href="/signup" className="font-medium text-brand-700 hover:underline">
           Create an account
         </Link>

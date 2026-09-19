@@ -1,6 +1,7 @@
 'use client';
 
 import { ArrowDown, ArrowUp, Building2, Link2, MapPin, Phone, Plus, Trash2, Video } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -257,7 +258,11 @@ export function EventTypeEditor({
         </Field>
         {v.locationType === 'zoom' && !zoomConnectedHostIds.includes(v.hostUserId) && (
           <Alert tone="warning" title={`${host?.id === hosts[0]?.id && !canAssignHost ? 'Zoom isn’t connected' : `Zoom isn’t connected for ${host?.name ?? 'this interviewer'}`}`}>
-            Interviews can still be booked, but no meeting link will be created until Zoom is connected on the Integrations page. Existing bookings are updated automatically once it is.
+            Interviews can still be booked, but no meeting link will be created until Zoom is connected on the{' '}
+            <Link href="/integrations" className="font-medium underline underline-offset-2">
+              Integrations page
+            </Link>
+            . Existing bookings are updated automatically once it is.
           </Alert>
         )}
         {(v.locationType === 'phone' || v.locationType === 'in_person' || v.locationType === 'custom') && (

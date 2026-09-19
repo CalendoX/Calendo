@@ -105,7 +105,7 @@ export async function handleZoomEvent(body: ZoomEventPayload): Promise<'processe
           status: 'error',
           accessTokenEncrypted: null,
           refreshTokenEncrypted: null,
-          lastError: 'Slate was removed from the Zoom account. Reconnect Zoom to create meetings.',
+          lastError: 'Calendor was removed from the Zoom account. Reconnect Zoom to create meetings.',
           lastErrorAt: new Date(),
           updatedAt: new Date(),
         })

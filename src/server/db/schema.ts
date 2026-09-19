@@ -3,6 +3,7 @@ import {
   bigint,
   boolean,
   check,
+  customType,
   date,
   index,
   integer,
@@ -18,7 +19,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 /*
- * Relational schema for the Slate interview scheduling platform.
+ * Relational schema for the Calendor interview scheduling platform.
  *
  * Conventions:
  *  - Every tenant-owned row carries `organization_id`; repositories always filter on it.
@@ -33,6 +34,7 @@ import {
 
 const ts = () => timestamp({ withTimezone: true, mode: 'date' });
 const tsNow = () => timestamp({ withTimezone: true, mode: 'date' }).notNull().defaultNow();
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => 'bytea' });
 
 // ---------------------------------------------------------------------------------------------
 // Enums
@@ -296,6 +298,21 @@ export const organizationHolidays = pgTable(
   },
   (t) => [uniqueIndex('organization_holidays_org_date_unique').on(t.organizationId, t.date)],
 );
+
+/**
+ * Uploaded organisation logo. Kept out of `organizations` so the blob is never loaded with the
+ * org row; `organizations.logo_url` points at the public route that serves it.
+ */
+export const organizationLogos = pgTable('organization_logos', {
+  organizationId: uuid()
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  contentType: text().notNull(),
+  data: bytea().notNull(),
+  sha256: text().notNull(),
+  updatedById: uuid().references(() => users.id, { onDelete: 'set null' }),
+  updatedAt: tsNow(),
+});
 
 // ---------------------------------------------------------------------------------------------
 // Event types & scheduling links
