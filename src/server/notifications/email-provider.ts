@@ -16,6 +16,8 @@ export interface EmailAttachment {
 
 export interface EmailMessage {
   to: { email: string; name?: string | null };
+  /** Sender address; defaults to the platform sender (EMAIL_FROM), e.g. an organisation's verified domain. */
+  from?: { name: string; address: string };
   fromName?: string;
   replyTo?: string | null;
   subject: string;
@@ -27,12 +29,21 @@ export interface EmailMessage {
   headers?: Record<string, string>;
 }
 
+/** The provider refused the sender address (e.g. its domain is no longer verified). */
+export class SenderDomainRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SenderDomainRejectedError';
+  }
+}
+
 export interface EmailProvider {
   readonly name: string;
   send(message: EmailMessage): Promise<{ messageId: string | null }>;
 }
 
-function parseFrom(): { name: string; address: string } {
+/** The platform-wide sender (EMAIL_FROM), used unless an organisation has verified its own domain. */
+export function platformSender(): { name: string; address: string } {
   const raw = env().EMAIL_FROM;
   const match = /^\s*"?([^"<]*)"?\s*<([^>]+)>\s*$/.exec(raw);
   if (match) return { name: match[1].trim(), address: match[2].trim() };
@@ -57,7 +68,7 @@ class SmtpProvider implements EmailProvider {
   });
 
   async send(m: EmailMessage) {
-    const from = parseFrom();
+    const from = m.from ?? platformSender();
     const info = await this.transport.sendMail({
       from: formatAddress(m.fromName ?? from.name, from.address),
       to: m.to.name ? formatAddress(m.to.name, m.to.email) : m.to.email,
@@ -76,7 +87,7 @@ class SmtpProvider implements EmailProvider {
 class ResendProvider implements EmailProvider {
   readonly name = 'resend';
   async send(m: EmailMessage) {
-    const from = parseFrom();
+    const from = m.from ?? platformSender();
     const attachments = [...(m.attachments ?? [])];
     if (m.icalEvent) attachments.push({ filename: 'invite.ics', content: m.icalEvent.content, contentType: `text/calendar; method=${m.icalEvent.method}` });
     const res = await fetch('https://api.resend.com/emails', {
@@ -99,6 +110,7 @@ class ResendProvider implements EmailProvider {
       signal: AbortSignal.timeout(15_000),
     });
     const body = (await res.json().catch(() => ({}))) as { id?: string; message?: string };
+    if (res.status === 403 && m.from && /domain/i.test(body.message ?? '')) throw new SenderDomainRejectedError(`Resend refused the sender ${m.from.address}: ${body.message}`);
     if (!res.ok) throw new Error(`Resend API error ${res.status}: ${body.message ?? 'unknown error'}`);
     return { messageId: body.id ?? null };
   }

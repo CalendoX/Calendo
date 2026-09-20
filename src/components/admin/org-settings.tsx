@@ -235,7 +235,10 @@ export function OrgSettingsForm({ initial }: { initial: OrgSettingsValue }) {
           <label className="flex items-center justify-between gap-4">
             <span>
               <span className="block text-sm font-medium text-zinc-800">Add candidates as guests on Google Calendar events</span>
-              <span className="block text-xs text-zinc-500">When on, Google also emails the candidate its own invitation. When off, candidates get Calendor’s calendar invite only.</span>
+              <span className="block text-xs text-zinc-500">
+                Google emails the candidate an invitation from the interviewer’s calendar, so the interview appears in their calendar. When off, candidates only get
+                Calendor’s calendar invite by email.
+              </span>
             </span>
             <Switch checked={s.addCandidateAsCalendarAttendee} onCheckedChange={(c) => setS({ addCandidateAsCalendarAttendee: c })} />
           </label>

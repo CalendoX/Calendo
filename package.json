@@ -13,6 +13,7 @@
     "build:worker": "node scripts/build-worker.mjs",
     "start": "next start -p 9000",
     "worker": "node dist/worker.js",
+    "deploy": "npm run build && cp -r .next/static .next/standalone/.next/ && node dist/migrate.js && pm2 startOrReload ecosystem.config.cjs --update-env && pm2 save",
     "worker:dev": "tsx watch --clear-screen=false src/worker/index.ts",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",

@@ -15,6 +15,7 @@ import {
   ScrollText,
   Settings,
   SlidersHorizontal,
+  UserCheck,
   UserCog,
   Users,
   LayoutDashboard,
@@ -44,7 +45,7 @@ export interface ShellOrg {
   name: string;
 }
 
-type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }>; exact?: boolean };
+type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }>; exact?: boolean; count?: number };
 
 const MAIN: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -90,6 +91,11 @@ function NavGroup({ title, items, pathname, onNavigate }: { title?: string; item
           >
             <Icon className={cn('size-[17px] shrink-0', active ? 'text-brand-300' : 'text-sidebar-muted/80 group-hover:text-white/80')} />
             <span className="truncate">{item.label}</span>
+            {Boolean(item.count) && (
+              <span className="ml-auto rounded-full bg-brand-500 px-1.5 text-[11px] font-semibold leading-5 text-white" aria-label={`${item.count} pending`}>
+                {item.count}
+              </span>
+            )}
           </Link>
         );
       })}
@@ -103,6 +109,7 @@ export function AppShell({
   role,
   organizations,
   appUrl,
+  platform,
   children,
 }: {
   user: ShellUser;
@@ -110,6 +117,8 @@ export function AppShell({
   role: 'admin' | 'recruiter' | 'interviewer';
   organizations: { organizationId: string; organizationName: string; role: string }[];
   appUrl: string;
+  /** Set for platform admins (the people running this deployment). */
+  platform?: { pendingSignups: number } | null;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -176,6 +185,9 @@ export function AppShell({
         <NavGroup title="Setup" items={SETUP} pathname={pathname} />
         <NavGroup title="Organization" items={ORG} pathname={pathname} />
         {role === 'admin' && <NavGroup title="Admin" items={ADMIN} pathname={pathname} />}
+        {platform && (
+          <NavGroup title="Platform" items={[{ href: '/platform/signups', label: 'Sign-up requests', icon: UserCheck, count: platform.pendingSignups }]} pathname={pathname} />
+        )}
       </nav>
 
       <div className="border-t border-white/[0.07] p-3">

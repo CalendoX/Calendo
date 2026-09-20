@@ -7,7 +7,7 @@ import { NextResponse, type NextRequest } from 'next/server';
  *    session check happens server-side in the (app) layout and in every API route)
  */
 
-const APP_PREFIXES = ['/dashboard', '/interviews', '/calendar', '/event-types', '/availability', '/integrations', '/team', '/settings', '/admin'];
+const APP_PREFIXES = ['/dashboard', '/interviews', '/calendar', '/event-types', '/availability', '/integrations', '/team', '/settings', '/admin', '/platform'];
 
 function sessionCookiePresent(req: NextRequest) {
   return Boolean(req.cookies.get('__Host-slate_session')?.value || req.cookies.get('slate_session')?.value);

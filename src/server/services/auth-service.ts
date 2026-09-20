@@ -1,5 +1,5 @@
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
-import { appUrl } from '../config/env';
+import { appUrl, platformAdminEmails } from '../config/env';
 import { db, type Executor } from '../db/client';
 import {
   availabilityRules,
@@ -13,7 +13,7 @@ import {
 import { AppError, BadRequestError, ConflictError, UnauthorizedError, ValidationError } from '../http/errors';
 import type { RequestMeta } from '../http/request';
 import { enqueue } from '../jobs/queue';
-import { QUEUES } from '../jobs/definitions';
+import { QUEUES, type JobPayloads } from '../jobs/definitions';
 import { encrypt, hashToken, randomToken } from '../security/crypto';
 import { burnPasswordCheck, hashPassword, passwordPolicyError, verifyPassword } from '../auth/password';
 import { createSession, revokeAllUserSessions, type AuthContext } from '../auth/session';
@@ -122,7 +122,13 @@ export async function createDefaultSchedule(executor: Executor, userId: string, 
   return schedule;
 }
 
-async function sendAccountEmail(kind: 'verify_email' | 'password_reset' | 'invitation', to: string, name: string, url: string, extra: { organizationName?: string; inviterName?: string } = {}) {
+export async function sendAccountEmail(
+  kind: JobPayloads['account-email']['kind'],
+  to: string,
+  name: string,
+  url: string,
+  extra: { organizationName?: string; inviterName?: string; requesterEmail?: string } = {},
+) {
   await enqueue(QUEUES.accountEmail, { kind, to, name, encryptedUrl: encrypt(url), ...extra });
 }
 
@@ -140,7 +146,8 @@ export async function signup(input: SignupInput, meta: RequestMeta) {
   const email = input.email.trim().toLowerCase();
   const policy = passwordPolicyError(input.password, { email });
   if (policy) throw new ValidationError(policy, { password: [policy] });
-  const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+  const [existing] = await db.select({ id: users.id, approvedAt: users.approvedAt }).from(users).where(eq(users.email, email)).limit(1);
+  if (existing && !existing.approvedAt) throw new ConflictError('A sign-up request for this email is already waiting for approval.', 'SIGNUP_PENDING');
   if (existing) throw new ConflictError('An account with this email already exists. Try signing in instead.', 'EMAIL_TAKEN');
 
   const passwordHash = await hashPassword(input.password);
@@ -163,6 +170,8 @@ export async function signup(input: SignupInput, meta: RequestMeta) {
         passwordHash,
         timezone: input.timezone,
         passwordChangedAt: new Date(Date.now() - 1000),
+        // Self-service sign-ups wait for a platform admin before they can sign in.
+        approvedAt: null,
       })
       .returning();
     await tx.insert(memberships).values({ organizationId: org.id, userId: user.id, role: 'admin', status: 'active' });
@@ -179,8 +188,13 @@ export async function signup(input: SignupInput, meta: RequestMeta) {
     return { org, user, verifyToken };
   });
   await sendAccountEmail('verify_email', email, result.user.name, appUrl(`/verify-email?token=${result.verifyToken}`));
-  const session = await createSession(result.user.id, result.org.id, meta);
-  return { user: result.user, organization: result.org, session };
+  for (const admin of platformAdminEmails()) {
+    await sendAccountEmail('signup_request', admin, result.user.name, appUrl('/platform/signups'), {
+      organizationName: result.org.name,
+      requesterEmail: email,
+    });
+  }
+  return { user: result.user, organization: result.org };
 }
 
 export async function login(emailInput: string, password: string, meta: RequestMeta) {
@@ -207,6 +221,10 @@ export async function login(emailInput: string, password: string, meta: RequestM
     throw invalid;
   }
   if (user.status !== 'active') throw new UnauthorizedError('This account has been deactivated. Contact your administrator.');
+  // Only revealed after a correct password, so it doesn't disclose which emails have signed up.
+  if (!user.approvedAt) {
+    throw new AppError(403, 'ACCOUNT_PENDING_APPROVAL', 'Your account is waiting for approval. We’ll email you as soon as it’s approved.');
+  }
   const active = await db
     .select({ organizationId: memberships.organizationId })
     .from(memberships)

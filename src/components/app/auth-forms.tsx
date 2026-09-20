@@ -78,11 +78,19 @@ export function LoginForm({ next }: { next: string }) {
 }
 
 export function SignupForm() {
-  const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [requested, setRequested] = useState<string | null>(null);
   const [timezone, setTimezone] = useState('UTC');
   const f = useFieldErrors();
   useEffect(() => setTimezone(browserTimeZone()), []);
+  if (requested) {
+    return (
+      <Alert tone="success" title="Request received">
+        Thanks! Your account is waiting for approval. We’ll email <strong>{requested}</strong> as soon as it’s approved. Meanwhile, please confirm your email address
+        using the link we just sent.
+      </Alert>
+    );
+  }
   return (
     <form
       className="space-y-4"
@@ -92,6 +100,7 @@ export function SignupForm() {
         f.reset();
         setBusy(true);
         try {
+          // New accounts wait for a platform admin's approval before they can sign in.
           await api('/api/auth/signup', {
             body: {
               name: data.get('name'),
@@ -101,8 +110,7 @@ export function SignupForm() {
               timezone,
             },
           });
-          router.push('/dashboard?welcome=1');
-          router.refresh();
+          setRequested(String(data.get('email') ?? ''));
         } catch (err) {
           f.fromError(err);
           setBusy(false);
@@ -126,7 +134,7 @@ export function SignupForm() {
         <TimezoneSelect id="timezone" value={timezone} onChange={setTimezone} />
       </Field>
       <Button type="submit" className="w-full" size="lg" loading={busy}>
-        Create account
+        Request account
       </Button>
     </form>
   );

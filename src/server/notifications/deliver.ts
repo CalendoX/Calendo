@@ -6,6 +6,7 @@ import {
   candidates,
   eventTypes,
   interviews,
+  invitesCandidateAsCalendarGuest,
   notifications,
   notificationTemplates,
   organizations,
@@ -14,7 +15,8 @@ import {
 } from '../db/schema';
 import { bookingLinksFor } from '../scheduling/booking-tokens';
 import { buildIcs, googleCalendarTemplateUrl, outlookCalendarUrl } from './ics';
-import { getEmailProvider, type EmailMessage } from './email-provider';
+import { getEmailProvider, SenderDomainRejectedError, type EmailMessage } from './email-provider';
+import { markSendingDomainRejected, organizationSender } from '../services/email-domain-service';
 import { renderEmail, type EmailContext } from './templates';
 import { locationLabel } from '@/lib/format';
 
@@ -147,15 +149,21 @@ export async function deliverNotification(notificationId: string, opts: { finalA
   };
   const rendered = renderEmail(ctx);
 
-  // Calendar invitation: candidates always; hosts only when Calendor is not writing to their calendar.
+  // Calendar invitation: hosts only when Calendor is not writing to their calendar; candidates
+  // unless Google already invited them as guests on that event (one calendar entry, not two).
+  const googleInvitedCandidate = invitesCandidateAsCalendarGuest(organization.settings) && Boolean(calEvent?.externalEventId);
   const attachInvite =
     recipientKind === 'candidate'
-      ? n.type !== 'reminder' && n.type !== 'host_booking_notification'
+      ? n.type !== 'reminder' && n.type !== 'host_booking_notification' && !googleInvitedCandidate
       : !calEvent && n.type !== 'reminder';
   const isCancel = n.type === 'cancellation' || n.type === 'host_cancellation_notification';
+  // The business's own verified domain when it has one; otherwise the platform sender, named for the business.
+  const orgSender = await organizationSender(organization.id);
+  const platformFromName = `${organization.name} (via Calendor)`;
   const message: EmailMessage = {
     to: { email: n.recipientEmail, name: n.recipientName },
-    fromName: `${organization.name} (via Calendor)`,
+    from: orgSender ?? undefined,
+    fromName: orgSender?.name ?? platformFromName,
     replyTo: recipientKind === 'candidate' ? host.email : candidate.email,
     subject: rendered.subject,
     html: rendered.html,
@@ -177,13 +185,26 @@ export async function deliverNotification(notificationId: string, opts: { finalA
             organizer: { name: host.name, email: host.email },
             attendee: { name: candidate.name, email: candidate.email },
             status: isCancel ? 'CANCELLED' : 'CONFIRMED',
+            rsvp: recipientKind === 'candidate',
           }),
         }
       : undefined,
   };
 
+  const send = async () => {
+    try {
+      return await getEmailProvider().send(message);
+    } catch (err) {
+      if (!(orgSender && err instanceof SenderDomainRejectedError)) throw err;
+      // The domain stopped verifying: flag it for the admin and deliver from the platform sender.
+      console.warn(`[notifications] ${err.message}; sending from the platform sender instead`);
+      await markSendingDomainRejected(organization.id);
+      return getEmailProvider().send({ ...message, from: undefined, fromName: platformFromName });
+    }
+  };
+
   try {
-    const result = await getEmailProvider().send(message);
+    const result = await send();
     await db
       .update(notifications)
       .set({

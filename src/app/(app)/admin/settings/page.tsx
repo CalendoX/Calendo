@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon';
 import { CheckCircle2, XCircle } from 'lucide-react';
 import type { Metadata } from 'next';
+import { EmailDomainSettings } from '@/components/admin/email-domain-settings';
 import { HolidaysManager, OrgSettingsForm, TemplatesEditor } from '@/components/admin/org-settings';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
@@ -8,8 +9,9 @@ import { PageHeader } from '@/components/ui/page-header';
 import { LinkTabs } from '@/components/ui/tabs';
 import { requireAdminPage } from '@/server/auth/page-guards';
 import { db } from '@/server/db/client';
-import { organizations } from '@/server/db/schema';
+import { invitesCandidateAsCalendarGuest, organizations } from '@/server/db/schema';
 import { DEFAULT_REMINDER_OFFSETS } from '@/server/notifications/planner';
+import { getEmailDomain } from '@/server/services/email-domain-service';
 import { listHolidays, listTemplates } from '@/server/services/organization-service';
 import { getSystemStatus } from '@/server/services/system-service';
 import { eq } from 'drizzle-orm';
@@ -19,6 +21,7 @@ export const metadata: Metadata = { title: 'System settings' };
 const TABS = [
   { key: 'organization', label: 'Organization' },
   { key: 'holidays', label: 'Holidays' },
+  { key: 'sending', label: 'Email sending' },
   { key: 'emails', label: 'Email templates' },
   { key: 'system', label: 'System status' },
 ];
@@ -44,13 +47,14 @@ export default async function AdminSettingsPage({ searchParams }: { searchParams
               candidateCanReschedule: org.settings.candidateCanReschedule !== false,
               candidateCanCancel: org.settings.candidateCanCancel !== false,
               candidateManageCutoffMinutes: org.settings.candidateManageCutoffMinutes ?? 0,
-              addCandidateAsCalendarAttendee: org.settings.addCandidateAsCalendarAttendee === true,
+              addCandidateAsCalendarAttendee: invitesCandidateAsCalendarGuest(org.settings),
               bookingPageNotice: org.settings.bookingPageNotice ?? '',
             },
           }}
         />
       )}
       {tab === 'holidays' && <HolidaysManager holidays={await listHolidays(auth)} />}
+      {tab === 'sending' && <EmailDomainSettings initial={await getEmailDomain(auth)} organizationName={org.name} />}
       {tab === 'emails' && <TemplatesEditor templates={await listTemplates(auth)} />}
       {tab === 'system' && <SystemStatus zone={auth.user.timezone} />}
     </>

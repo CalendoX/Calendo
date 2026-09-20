@@ -73,10 +73,27 @@ export interface OrganizationSettings {
   candidateCanCancel?: boolean;
   /** Candidates cannot reschedule/cancel within this many minutes of the start time. */
   candidateManageCutoffMinutes?: number;
-  /** When true, candidates are added as attendees on the interviewer's Google Calendar event. */
+  /**
+   * Candidates are added as guests on the interviewer's Google Calendar event, so Google emails
+   * them an invitation and the interview lands in their calendar (on unless set to false).
+   */
   addCandidateAsCalendarAttendee?: boolean;
   /** Free-form policy shown on the public booking page. */
   bookingPageNotice?: string;
+}
+
+/** Whether candidates are invited as guests on the interviewer's Google Calendar event (default on). */
+export function invitesCandidateAsCalendarGuest(settings: OrganizationSettings): boolean {
+  return settings.addCandidateAsCalendarAttendee !== false;
+}
+
+/** A DNS record a business must add to send email from its own domain (as reported by the email provider). */
+export interface EmailDnsRecord {
+  type: string;
+  name: string;
+  value: string;
+  priority: number | null;
+  status: string | null;
 }
 
 export type FieldMode = 'hidden' | 'optional' | 'required';
@@ -128,6 +145,12 @@ export const users = pgTable(
     username: text().notNull(),
     passwordHash: text(),
     emailVerifiedAt: ts(),
+    /**
+     * When a platform admin approved the account. Self-service sign-ups start as null (pending) and
+     * cannot sign in until approved; accounts created any other way (e.g. team invitations) are
+     * approved on creation.
+     */
+    approvedAt: ts().defaultNow(),
     timezone: text().notNull().default('UTC'),
     title: text(),
     status: userStatus().notNull().default('active'),
@@ -311,6 +334,27 @@ export const organizationLogos = pgTable('organization_logos', {
   data: bytea().notNull(),
   sha256: text().notNull(),
   updatedById: uuid().references(() => users.id, { onDelete: 'set null' }),
+  updatedAt: tsNow(),
+});
+
+/**
+ * A business's own email sending domain (e.g. acme.com), registered with the email provider
+ * (Resend). Once its DNS records verify, the organisation's interview emails are sent from
+ * `from_local_part@domain`; until then they use the platform sender (EMAIL_FROM).
+ */
+export const organizationEmailDomains = pgTable('organization_email_domains', {
+  organizationId: uuid()
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  domain: text().notNull().unique(),
+  providerDomainId: text().notNull(),
+  status: text().notNull().default('not_started'),
+  records: jsonb().$type<EmailDnsRecord[]>().notNull().default([]),
+  fromName: text().notNull(),
+  fromLocalPart: text().notNull().default('scheduling'),
+  verifiedAt: ts(),
+  lastCheckedAt: ts(),
+  createdAt: tsNow(),
   updatedAt: tsNow(),
 });
 

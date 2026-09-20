@@ -1,4 +1,4 @@
-import type { EmailMessage, EmailProvider } from '../../src/server/notifications/email-provider';
+import { SenderDomainRejectedError, type EmailMessage, type EmailProvider } from '../../src/server/notifications/email-provider';
 
 /** Email provider that records messages instead of sending them. */
 class Outbox implements EmailProvider {
@@ -6,12 +6,15 @@ class Outbox implements EmailProvider {
   messages: EmailMessage[] = [];
   /** When set, the next `failures` sends throw (to exercise retry handling). */
   private failures = 0;
+  /** When set, sends from an organisation's own domain are refused (as if its DNS records were removed). */
+  rejectCustomSenders = false;
 
   async send(message: EmailMessage) {
     if (this.failures > 0) {
       this.failures--;
       throw new Error('SMTP connection refused (simulated)');
     }
+    if (this.rejectCustomSenders && message.from) throw new SenderDomainRejectedError(`The ${message.from.address.split('@')[1]} domain is not verified (simulated)`);
     this.messages.push(message);
     return { messageId: `test-${this.messages.length}` };
   }
@@ -27,6 +30,7 @@ class Outbox implements EmailProvider {
   clear() {
     this.messages = [];
     this.failures = 0;
+    this.rejectCustomSenders = false;
   }
 }
 

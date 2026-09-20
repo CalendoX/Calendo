@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
  * error classification. Failures can be injected per endpoint.
  */
 
-type ProviderName = 'google' | 'zoom';
+type ProviderName = 'google' | 'zoom' | 'resend';
 
 export interface RecordedCall {
   provider: ProviderName;
@@ -475,15 +475,78 @@ class FakeZoom {
 // Router
 // ---------------------------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------------------------
+// Resend (domains API)
+// ---------------------------------------------------------------------------------------------
+
+export interface FakeResendDomain {
+  id: string;
+  name: string;
+  status: string;
+  records: { record: string; name: string; type: string; ttl: string; status: string; value: string; priority?: number }[];
+}
+
+class FakeResend {
+  domains = new Map<string, FakeResendDomain>();
+  private published = new Set<string>();
+  private counter = 0;
+
+  /** Simulates the business publishing the DNS records: the next verification succeeds. */
+  publishDns(domain: string) {
+    this.published.add(domain);
+  }
+
+  handle(method: string, url: URL, body: unknown, headers: Record<string, string>): Response {
+    if (headers.authorization !== `Bearer ${process.env.RESEND_API_KEY}`) return json(401, { name: 'missing_api_key', message: 'API key is invalid' });
+    const m = /^\/domains(?:\/([^/]+)(\/verify)?)?$/.exec(url.pathname);
+    if (!m) return json(404, { name: 'not_found', message: 'Not found' });
+    const [, id, verify] = m;
+    if (!id && method === 'POST') {
+      const name = (body as { name: string }).name;
+      if ([...this.domains.values()].some((d) => d.name === name)) {
+        return json(403, { name: 'validation_error', message: `The ${name} domain has already been registered.` });
+      }
+      const status = 'not_started';
+      const domain: FakeResendDomain = {
+        id: `dom_${++this.counter}`,
+        name,
+        status,
+        records: [
+          { record: 'SPF', name: 'send', type: 'MX', ttl: 'Auto', status, value: 'feedback-smtp.us-east-1.amazonses.com', priority: 10 },
+          { record: 'SPF', name: 'send', type: 'TXT', ttl: 'Auto', status, value: 'v=spf1 include:amazonses.com ~all' },
+          { record: 'DKIM', name: 'resend._domainkey', type: 'TXT', ttl: 'Auto', status, value: 'p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC' },
+        ],
+      };
+      this.domains.set(domain.id, domain);
+      return json(200, { ...domain, region: 'us-east-1', created_at: new Date().toISOString() });
+    }
+    const domain = id ? this.domains.get(id) : undefined;
+    if (!domain) return json(404, { name: 'not_found', message: 'Domain not found' });
+    if (verify && method === 'POST') {
+      domain.status = this.published.has(domain.name) ? 'verified' : 'pending';
+      for (const r of domain.records) r.status = this.published.has(domain.name) ? 'verified' : 'pending';
+      return json(200, { object: 'domain', id: domain.id });
+    }
+    if (!verify && method === 'GET') return json(200, domain);
+    if (!verify && method === 'DELETE') {
+      this.domains.delete(domain.id);
+      return json(200, { object: 'domain', id: domain.id, deleted: true });
+    }
+    return json(405, { name: 'method_not_allowed', message: 'Method not allowed' });
+  }
+}
+
 class FakeProviders {
   google = new FakeGoogle();
   zoom = new FakeZoom();
+  resend = new FakeResend();
   calls: RecordedCall[] = [];
   private failures: InjectedFailure[] = [];
 
   reset() {
     this.google = new FakeGoogle();
     this.zoom = new FakeZoom();
+    this.resend = new FakeResend();
     this.calls = [];
     this.failures = [];
   }
@@ -510,7 +573,9 @@ class FakeProviders {
       ? 'google'
       : /(^|\.)zoom\.us$/.test(url.hostname)
         ? 'zoom'
-        : null;
+        : url.hostname === 'api.resend.com'
+          ? 'resend'
+          : null;
     if (!provider) throw new TypeError(`fetch failed: unexpected outbound request to ${url.origin} in tests`);
     this.calls.push({ provider, method, url, path: url.pathname, body, headers });
 
@@ -522,6 +587,7 @@ class FakeProviders {
       if (failure.networkError) throw new TypeError('fetch failed: ECONNRESET (simulated)');
       return json(failure.status ?? 500, failure.body ?? { error: { code: failure.status ?? 500, message: 'Simulated provider failure' } }, failure.headers);
     }
+    if (provider === 'resend') return this.resend.handle(method, url, body, headers);
     return provider === 'google' ? this.google.handle(method, url, body, headers) : this.zoom.handle(method, url, body, headers);
   };
 }

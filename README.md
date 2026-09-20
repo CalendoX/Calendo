@@ -28,16 +28,17 @@ emails everyone, sends reminders, and keeps all of it in sync through reschedule
 1. [Getting started](#getting-started)
 2. [Development credentials](#development-credentials)
 3. [Environment variables](#environment-variables)
-4. [Connecting Google Calendar](#connecting-google-calendar)
-5. [Connecting Zoom](#connecting-zoom)
-6. [Architecture](#architecture)
-7. [Database and migrations](#database-and-migrations)
-8. [Background jobs](#background-jobs)
-9. [Testing](#testing)
-10. [Production deployment](#production-deployment)
-11. [API reference](#api-reference)
-12. [Security](#security)
-13. [Known limitations](#known-limitations)
+4. [Sending email from each organization's domain](#sending-email-from-each-organizations-domain)
+5. [Connecting Google Calendar](#connecting-google-calendar)
+6. [Connecting Zoom](#connecting-zoom)
+7. [Architecture](#architecture)
+8. [Database and migrations](#database-and-migrations)
+9. [Background jobs](#background-jobs)
+10. [Testing](#testing)
+11. [Production deployment](#production-deployment)
+12. [API reference](#api-reference)
+13. [Security](#security)
+14. [Known limitations](#known-limitations)
 
 ---
 
@@ -154,10 +155,11 @@ All configuration is read from environment variables and validated at startup
 | `ZOOM_WEBHOOK_SECRET_TOKEN` | for Zoom webhooks | Secret Token from the app's Event Subscriptions. |
 | `WEBHOOK_BASE_URL` | no | Public HTTPS base for provider webhooks. Defaults to `APP_URL`. Google push channels are only registered when it is `https://`. |
 | `EMAIL_PROVIDER` | no | `smtp`, `resend` or `console` (default `console`). |
-| `EMAIL_FROM` / `EMAIL_REPLY_TO` | no | Sender address, e.g. `"Calendor <scheduling@example.com>"`. |
+| `EMAIL_FROM` / `EMAIL_REPLY_TO` | no | Platform sender, e.g. `"Calendor <scheduling@example.com>"`. Used for account emails, and for interview emails of organizations without a verified sending domain. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD` | for SMTP | Any SMTP service (Postmark, SES, SendGrid, Mailgun, Mailpit…). |
-| `RESEND_API_KEY` | for Resend | Resend HTTP API key. |
+| `RESEND_API_KEY` | for Resend | Resend API key. Give it **full access** so organizations can connect their own sending domains (see below). |
 | `WORKER_CONCURRENCY` | no | Parallel jobs per queue per worker process (default 5). |
+| `PLATFORM_ADMIN_EMAILS` | yes, in production | Comma-separated emails of the people who run the deployment. New self-service sign-ups can't sign in until one of them approves the request under **Platform → Sign-up requests** (they're emailed about each request). The address must be verified to grant these rights. Team members invited by an organization admin don't need approval. |
 | `CORS_ALLOWED_ORIGINS` | no | Origins allowed to call the public scheduling API from other sites. |
 | `TRUST_PROXY` | no | `true` behind a load balancer, so `X-Forwarded-For` is used for rate limits and audit IPs. |
 | `LOG_LEVEL` | no | `debug`, `info`, `warn` or `error`. |
@@ -165,6 +167,21 @@ All configuration is read from environment variables and validated at startup
 
 Background jobs run on [pg-boss](https://github.com/timgit/pg-boss), which lives in the same PostgreSQL
 database, so there is no Redis or other queue service to configure.
+
+---
+
+## Sending email from each organization's domain
+
+With `EMAIL_PROVIDER=resend`, each organization's admin can connect the organization's own domain
+under **System settings → Email sending**. Calendor registers the domain with Resend and shows the
+DNS records (SPF and DKIM) to publish. Once Resend verifies them, the organization's interview emails
+(confirmations, reminders, reschedules and cancellations) come from its own address, e.g.
+`"Acme Hiring" <scheduling@acme.com>`. Replies still go to the interviewer or candidate.
+
+Until a domain verifies, or if it stops verifying, interview emails come from `EMAIL_FROM`, named
+after the organization. Account emails (verification, password reset, invitations) always use
+`EMAIL_FROM`. Each domain can belong to one organization, and the platform's own sender domain is
+reserved.
 
 ---
 
@@ -429,6 +446,21 @@ On any platform (Kubernetes, ECS, Fly.io, Render…) the shape is the same:
    `node dist/migrate.js` (or `npm run db:migrate:deploy`). It is idempotent.
 3. **Run** the web service (scale horizontally) and at least one worker (scale as needed).
 4. **Terminate TLS** in front of the web service and set `TRUST_PROXY=true`.
+
+### Single server with pm2
+
+On one server without Docker, `ecosystem.config.cjs` runs the web server (`calendor-web`, on
+`127.0.0.1:9000` behind your reverse proxy) and the worker (`calendor-worker`) under
+[pm2](https://pm2.keymetrics.io/), both reading `.env` (with `NODE_ENV=production`).
+
+```bash
+npm run deploy                      # build, copy static assets, migrate, (re)start both processes
+pm2 startup systemd && pm2 save     # once: restart the processes after a reboot
+pm2 logs calendor-web               # or calendor-worker
+```
+
+Run `npm run deploy` again after every code change. After editing `.env` only, restart instead:
+`pm2 restart calendor-web calendor-worker --update-env`.
 
 ### Production checklist
 

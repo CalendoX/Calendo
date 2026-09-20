@@ -174,3 +174,23 @@ describe('organisation email templates', () => {
     expect(outbox.to(email).map((m) => m.subject)).toEqual([expect.stringMatching(/^Confirmed/), expect.stringMatching(/^Cancelled/)]);
   });
 });
+
+describe('candidate-facing links', () => {
+  it('never sends candidates a link to the Calendor dashboard, which needs a team sign-in', async () => {
+    const w = await world();
+    const { email, interviewId } = await book(w.host, w.eventType, upcomingWeekday(TZ, '10:00', 4));
+    await deliverDueNotifications();
+    await cancelInterview({ interviewId, reason: 'Role closed', actor: { type: 'user', userId: w.admin.id }, actorRole: 'admin', via: 'dashboard', inlineSync: false });
+    await deliverDueNotifications();
+
+    const toCandidate = outbox.to(email);
+    expect(toCandidate.map((m) => m.subject)).toEqual([expect.stringMatching(/^Confirmed/), expect.stringMatching(/^Cancelled/)]);
+    for (const m of toCandidate) {
+      for (const part of [m.html, m.text, m.icalEvent?.content ?? '']) expect(part).not.toContain('/interviews/');
+    }
+    // Candidates get their own booking page instead (view / reschedule / cancel, no sign-in).
+    expect(toCandidate[0].text).toMatch(/\/booking\/[A-Za-z0-9_-]+/);
+    // Interviewers do get the dashboard link.
+    expect(outbox.to(w.host.email)[0].text).toContain(`/interviews/${interviewId}`);
+  });
+});

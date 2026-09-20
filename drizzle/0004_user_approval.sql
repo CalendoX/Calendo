@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "approved_at" timestamp with time zone DEFAULT now();

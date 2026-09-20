@@ -56,6 +56,8 @@ const EnvSchema = z.object({
   RESEND_API_KEY: optionalString,
 
   CORS_ALLOWED_ORIGINS: optionalString,
+  /** Comma-separated emails of the people who run this Calendor deployment and approve sign-ups. */
+  PLATFORM_ADMIN_EMAILS: optionalString,
   TRUST_PROXY: booleanish.default(false),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
@@ -90,6 +92,13 @@ export function resetEnvCache() {
 export function appUrl(path = ''): string {
   const base = env().APP_URL.replace(/\/$/, '');
   return path ? `${base}${path.startsWith('/') ? path : `/${path}`}` : base;
+}
+
+export function platformAdminEmails(): string[] {
+  return (env().PLATFORM_ADMIN_EMAILS ?? '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 export function isProduction() {

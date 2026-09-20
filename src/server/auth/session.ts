@@ -126,7 +126,7 @@ export async function resolveSessionToken(token: string): Promise<AuthContext | 
     .limit(1);
   if (!row) return null;
   const { session, user } = row;
-  if (user.status !== 'active') return null;
+  if (user.status !== 'active' || !user.approvedAt) return null;
   if (now.getTime() - session.lastSeenAt.getTime() > SESSION_IDLE_TIMEOUT_MS) return null;
   // Sessions issued before a password change are invalid.
   if (user.passwordChangedAt && session.createdAt < user.passwordChangedAt) return null;

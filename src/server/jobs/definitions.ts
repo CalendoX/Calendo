@@ -34,12 +34,18 @@ export interface JobPayloads {
   'notification-deliver': { notificationId: string };
   'webhook-process': { webhookEventId: string };
   'account-email': {
-    kind: 'verify_email' | 'password_reset' | 'invitation';
+    /**
+     * verify_email / password_reset / invitation: to the account holder.
+     * signup_request: to a platform admin (`name` / `requesterEmail` describe who asked).
+     * account_approved / signup_declined: the outcome, to the person who signed up.
+     */
+    kind: 'verify_email' | 'password_reset' | 'invitation' | 'signup_request' | 'account_approved' | 'signup_declined';
     to: string;
     name: string;
     encryptedUrl: string;
     organizationName?: string;
     inviterName?: string;
+    requesterEmail?: string;
   };
   'calendar-watch-renew': Record<string, never>;
   'maintenance-cleanup': Record<string, never>;

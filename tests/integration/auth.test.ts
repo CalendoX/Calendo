@@ -181,14 +181,16 @@ describe('password reset', () => {
 });
 
 describe('sign-up and email verification', () => {
-  it('creates an organisation with the founder as admin and verifies their email', async () => {
+  it('creates an organisation awaiting approval and verifies the founder’s email', async () => {
     const res = await call(signupRoute, {
       path: '/x',
       body: { name: 'Avery Chen', email: 'avery@startup.test', password: 'Launch-Day-Passphrase-1', organizationName: 'Startup Inc', timezone: 'America/Denver' },
     });
     expect(res.status).toBe(201);
-    const current = await me();
-    expect(current.body).toMatchObject({ role: 'admin', organization: { name: 'Startup Inc' }, user: { emailVerifiedAt: null } });
+    expect(res.body).toMatchObject({ pendingApproval: true, user: { email: 'avery@startup.test' } });
+    // No session until a platform admin approves the account (see signup-approval.test.ts).
+    expect(res.headers.get('set-cookie')).toBeNull();
+    expect((await me()).status).toBe(401);
 
     const url = await lastAccountEmailUrl('avery@startup.test', 'verify_email');
     expect((await call(verifyRoute, { path: '/x', body: { token: url.searchParams.get('token') } })).status).toBe(200);
@@ -201,6 +203,7 @@ describe('sign-up and email verification', () => {
       body: { name: 'Avery', email: 'avery@startup.test', password: 'Launch-Day-Passphrase-1', organizationName: 'Again', timezone: 'UTC' },
     });
     expect(dup.status).toBe(409);
+    expect(dup.body.error.code).toBe('SIGNUP_PENDING');
   });
 });
 

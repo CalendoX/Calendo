@@ -57,6 +57,36 @@ export async function sendAccountEmail(p: Payload) {
       );
       text = `Hi ${p.name},\n\n${p.inviterName ?? 'A teammate'} invited you to ${p.organizationName ?? env().APP_NAME}. Accept: ${url}\n\nThis invitation expires in 7 days.`;
       break;
+    case 'signup_request':
+      subject = `New sign-up request: ${p.name} (${p.organizationName ?? 'new organization'})`;
+      html = layout(
+        'New sign-up request',
+        `${escapeHtml(p.name)} (${escapeHtml(p.requesterEmail ?? '')}) asked to create <strong>${escapeHtml(p.organizationName ?? 'an organization')}</strong> on ${escapeHtml(env().APP_NAME)}. They can’t sign in until you approve the request.`,
+        { label: 'Review request', url },
+        'You receive this because you are a platform admin of this deployment.',
+      );
+      text = `${p.name} (${p.requesterEmail ?? ''}) asked to create ${p.organizationName ?? 'an organization'} on ${env().APP_NAME}.\n\nReview the request: ${url}`;
+      break;
+    case 'account_approved':
+      subject = `Your ${env().APP_NAME} account is approved`;
+      html = layout(
+        'You’re approved',
+        `Hi ${escapeHtml(p.name)}, your ${escapeHtml(env().APP_NAME)} account for ${escapeHtml(p.organizationName ?? 'your organization')} has been approved. You can sign in now.`,
+        { label: 'Sign in', url },
+        'Welcome aboard.',
+      );
+      text = `Hi ${p.name},\n\nYour ${env().APP_NAME} account for ${p.organizationName ?? 'your organization'} has been approved. Sign in: ${url}`;
+      break;
+    case 'signup_declined':
+      subject = `Your ${env().APP_NAME} sign-up request`;
+      html = layout(
+        'We couldn’t approve your request',
+        `Hi ${escapeHtml(p.name)}, thanks for your interest in ${escapeHtml(env().APP_NAME)}. We weren’t able to approve the account for ${escapeHtml(p.organizationName ?? 'your organization')}, and the request has been removed. If you’re a candidate, you don’t need an account: use the booking link your interviewer sent you.`,
+        { label: `Visit ${env().APP_NAME}`, url },
+        'If you think this is a mistake, reply to this email.',
+      );
+      text = `Hi ${p.name},\n\nWe weren't able to approve your ${env().APP_NAME} account for ${p.organizationName ?? 'your organization'}, and the request has been removed. If you're a candidate, you don't need an account: use the booking link your interviewer sent you.`;
+      break;
   }
   await getEmailProvider().send({ to: { email: p.to, name: p.name }, subject, html, text });
 }

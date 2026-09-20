@@ -19,11 +19,12 @@ import { googleCalendarProvider, googleEventIdFor } from '@/server/integrations/
 import { tokenSourceFor } from '@/server/integrations/service';
 import { processWebhookEvent } from '@/server/integrations/webhooks';
 import { decrypt } from '@/server/security/crypto';
-import { jobs } from '../helpers/db';
+import { deliverDueNotifications, jobs } from '../helpers/db';
 import { fakeProviders, GOOGLE_FULL_SCOPES } from '../helpers/fake-providers';
 import { addMinutes, createEventType, createMember, createOrg, signIn, signOut, upcomingWeekday, type EventType, type User } from '../helpers/fixtures';
 import { call } from '../helpers/http';
 import { connect, integrationRow } from '../helpers/integrations';
+import { outbox } from '../helpers/outbox';
 
 const TZ = 'America/New_York';
 const PRIMARY = 'primary-cal@gmail.test';
@@ -246,20 +247,46 @@ describe('calendar event lifecycle', () => {
     expect(event.start).toEqual({ dateTime: start.toISOString(), timeZone: TZ });
     expect(event.end).toEqual({ dateTime: addMinutes(start, 60).toISOString(), timeZone: TZ });
     expect(event.extendedProperties?.private?.slateInterviewId).toBe(interview.id);
-    for (const expected of ['riley@candidate.test', 'Priya Nair', '+1 555 0142', 'What should we focus on?: Distributed systems', `/interviews/${interview.id}`]) {
+    for (const expected of ['riley@candidate.test', 'Priya Nair', '+1 555 0142', 'What should we focus on?: Distributed systems']) {
       expect(event.description).toContain(expected);
     }
-    // By default the candidate is not added as a guest (Calendor sends its own emails).
-    expect(event.attendees).toEqual([]);
-    expect(event.sendUpdates).toBe('none');
+    // By default the candidate is a guest, so Google invites them and it lands in their calendar.
+    expect(event.attendees).toEqual([{ email: 'riley@candidate.test', displayName: 'Riley Carter' }]);
+    expect(event.sendUpdates).toBe('all');
+    // The candidate can read the description: it links to their own booking page (no sign-in), never
+    // the Calendor dashboard. The interviewer's dashboard link is in `source`, visible only to them.
+    expect(event.description).toMatch(/View, reschedule or cancel this booking: http:\/\/localhost:3000\/booking\/[A-Za-z0-9_-]+/);
+    expect(event.description).not.toContain('/interviews/');
+    expect((event as { source?: { url: string } }).source?.url).toBe(`http://localhost:3000/interviews/${interview.id}`);
   });
 
-  it('adds the candidate as a guest when the organisation enables it', async () => {
-    const w = await connected({ addCandidateAsCalendarAttendee: true });
+  it('leaves the candidate off the event when the organisation turns guest invites off', async () => {
+    const w = await connected({ addCandidateAsCalendarAttendee: false });
     await book(w.host, w.eventType, upcomingWeekday(TZ, '10:00'), { email: 'guest@candidate.test' });
+    const [interview] = await db.select().from(interviews);
     const [event] = google().liveEvents();
-    expect(event.attendees).toEqual([{ email: 'guest@candidate.test', displayName: 'Riley Carter' }]);
-    expect(event.sendUpdates).toBe('all');
+    expect(event.attendees).toEqual([]);
+    expect(event.sendUpdates).toBe('none');
+    // Only the interviewer sees this event, so it links straight to the interview in Calendor.
+    expect(event.description).toContain(`Interview details: http://localhost:3000/interviews/${interview.id}`);
+    expect(event.description).not.toContain('/booking/');
+  });
+
+  it("doesn't also attach Calendor's calendar invite for candidates Google already invited", async () => {
+    const w = await connected();
+    await book(w.host, w.eventType, upcomingWeekday(TZ, '10:00'), { email: 'guest@candidate.test' });
+    await deliverDueNotifications();
+    const [confirmation] = outbox.to('guest@candidate.test');
+    expect(confirmation.subject).toContain('Confirmed');
+    expect(confirmation.icalEvent).toBeUndefined();
+  });
+
+  it("attaches Calendor's calendar invite when guest invites are off", async () => {
+    const w = await connected({ addCandidateAsCalendarAttendee: false });
+    await book(w.host, w.eventType, upcomingWeekday(TZ, '10:00'), { email: 'guest@candidate.test' });
+    await deliverDueNotifications();
+    const [confirmation] = outbox.to('guest@candidate.test');
+    expect(confirmation.icalEvent?.method).toBe('REQUEST');
   });
 
   it('updates the same event on reschedule and removes it on cancellation', async () => {

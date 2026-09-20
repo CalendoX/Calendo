@@ -9,11 +9,13 @@ import {
   eventTypes,
   integrations,
   interviews,
+  invitesCandidateAsCalendarGuest,
   organizations,
   users,
   videoMeetings,
 } from '../db/schema';
 import { dispatchSyncGatedNotifications, planMeetingDetailsUpdate } from '../notifications/planner';
+import { bookingLinksFor } from '../scheduling/booking-tokens';
 import { encrypt } from '../security/crypto';
 import { recordAudit } from '../services/audit';
 import { locationLabel } from '@/lib/format';
@@ -151,9 +153,15 @@ function meetingInput(d: Loaded): MeetingInput {
   };
 }
 
-function calendarInput(d: Loaded, joinUrl: string | null): CalendarEventInput {
+/**
+ * The interviewer's calendar event. When the candidate is a guest they see the description too, so
+ * it then links to the candidate's own booking page (no sign-in) instead of the Calendor dashboard;
+ * the dashboard link stays in `sourceUrl`, which Google only shows to the event's creator.
+ */
+function calendarInput(d: Loaded, joinUrl: string | null, candidateBookingUrl: string | null): CalendarEventInput {
+  const candidateIsGuest = invitesCandidateAsCalendarGuest(d.organization.settings);
   const lines = [
-    `${d.eventType.name} with ${d.candidate.name}`,
+    candidateIsGuest ? `${d.eventType.name} with ${d.host.name} and ${d.candidate.name}` : `${d.eventType.name} with ${d.candidate.name}`,
     '',
     `When: ${formatWhen(d)}`,
     `Interviewer: ${d.host.name} <${d.host.email}>`,
@@ -172,10 +180,10 @@ function calendarInput(d: Loaded, joinUrl: string | null): CalendarEventInput {
     for (const r of d.interview.responses) lines.push(`• ${r.label}: ${r.answer}`);
     lines.push('');
   }
-  lines.push(`Interview details: ${appUrl(`/interviews/${d.interview.id}`)}`);
+  if (!candidateIsGuest) lines.push(`Interview details: ${appUrl(`/interviews/${d.interview.id}`)}`);
+  else if (candidateBookingUrl) lines.push(`View, reschedule or cancel this booking: ${candidateBookingUrl}`);
 
   const location = joinUrl ?? (d.interview.locationType === 'zoom' ? null : d.interview.locationDetails);
-  const addAttendee = d.organization.settings.addCandidateAsCalendarAttendee === true;
   return {
     interviewId: d.interview.id,
     title: `${d.eventType.name}: ${d.candidate.name}`,
@@ -184,8 +192,8 @@ function calendarInput(d: Loaded, joinUrl: string | null): CalendarEventInput {
     start: d.interview.startAt,
     end: d.interview.endAt,
     timezone: d.interview.timezone,
-    attendees: addAttendee ? [{ email: d.candidate.email, name: d.candidate.name }] : [],
-    notifyAttendees: addAttendee,
+    attendees: candidateIsGuest ? [{ email: d.candidate.email, name: d.candidate.name }] : [],
+    notifyAttendees: candidateIsGuest,
     sourceUrl: appUrl(`/interviews/${d.interview.id}`),
   };
 }
@@ -333,7 +341,7 @@ async function syncCalendar(
         ev.provider,
       );
       if (!ev.externalCalendarId) throw new IntegrationError(ev.provider, 'permanent', 'No calendar selected for new interviews.');
-      const input = calendarInput(d, meeting.joinUrl);
+      const input = calendarInput(d, meeting.joinUrl, (await bookingLinksFor(d.interview.id)).view);
       let result;
       if (ev.externalEventId && ev.status !== 'deleted_externally' && ev.integrationId === integration.id) {
         try {
@@ -380,7 +388,7 @@ async function syncCalendar(
           (await integrationById(ev.integrationId)) ?? (await activeIntegrationFor(d.interview.hostUserId, ev.provider)),
           ev.provider,
         );
-        await cancelCalendarEvent(integration, ev.externalCalendarId, ev.externalEventId, d.organization.settings.addCandidateAsCalendarAttendee === true);
+        await cancelCalendarEvent(integration, ev.externalCalendarId, ev.externalEventId, invitesCandidateAsCalendarGuest(d.organization.settings));
       }
       await db
         .update(calendarEvents)

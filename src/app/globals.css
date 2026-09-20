@@ -57,6 +57,13 @@
   ::selection {
     @apply bg-brand-100 text-brand-900;
   }
+  /* Tailwind v4's preflight drops v3's `cursor: pointer` on buttons, leaving them on the
+     browser's arrow. Put the hand back on anything clickable. This lives in `base` so the
+     utilities layer still wins where an element opts out (cursor-not-allowed, cursor-default). */
+  button:not(:disabled):not([aria-disabled='true']):not([data-disabled]),
+  [role='button']:not([aria-disabled='true']):not([data-disabled]) {
+    cursor: pointer;
+  }
 }
 
 @utility tabular {

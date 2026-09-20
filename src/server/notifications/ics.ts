@@ -17,6 +17,16 @@ export interface IcsEvent {
   organizer: { name: string; email: string };
   attendee: { name: string; email: string };
   status: 'CONFIRMED' | 'CANCELLED';
+  /**
+   * Sent to the attendee themself: ask for a reply, so mail and calendar apps show
+   * Yes / No / Maybe (the reply goes to the organizer).
+   */
+  rsvp?: boolean;
+}
+
+function attendeeStatus(e: IcsEvent) {
+  if (e.method === 'CANCEL') return 'PARTSTAT=DECLINED;RSVP=FALSE';
+  return e.rsvp ? 'PARTSTAT=NEEDS-ACTION;RSVP=TRUE' : 'PARTSTAT=ACCEPTED;RSVP=FALSE';
 }
 
 function formatUtc(date: Date) {
@@ -71,7 +81,7 @@ export function buildIcs(e: IcsEvent): string {
     ...(e.location ? [`LOCATION:${escapeText(e.location)}`] : []),
     ...(e.url ? [`URL:${e.url}`] : []),
     `ORGANIZER;CN=${cn(e.organizer.name)}:mailto:${e.organizer.email}`,
-    `ATTENDEE;CN=${cn(e.attendee.name)};ROLE=REQ-PARTICIPANT;PARTSTAT=${e.method === 'CANCEL' ? 'DECLINED' : 'ACCEPTED'};RSVP=FALSE:mailto:${e.attendee.email}`,
+    `ATTENDEE;CN=${cn(e.attendee.name)};ROLE=REQ-PARTICIPANT;${attendeeStatus(e)}:mailto:${e.attendee.email}`,
     `STATUS:${e.status}`,
     'TRANSP:OPAQUE',
     ...(e.method === 'REQUEST'
