@@ -38,7 +38,7 @@ export async function jobs<T = Record<string, unknown>>(name?: string): Promise<
 /** The URL inside the most recent account email (verification / reset / invitation) sent to `to`. */
 export async function lastAccountEmailUrl(
   to: string,
-  kind?: 'verify_email' | 'password_reset' | 'invitation' | 'signup_request' | 'account_approved' | 'signup_declined',
+  kind?: 'verify_email' | 'password_reset' | 'invitation',
 ) {
   const all = await jobs<{ kind: string; to: string; encryptedUrl: string }>('account-email');
   const match = all.filter((j) => j.data.to === to && (!kind || j.data.kind === kind)).at(-1);

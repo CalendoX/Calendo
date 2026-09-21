@@ -135,7 +135,7 @@ export async function completeOAuth(
     const missing = tokens.scopes.length ? required.filter((s) => !tokens.scopes.includes(s)) : [];
     if (missing.length) {
       await adapter.revoke(tokens.accessToken).catch(() => undefined);
-      throw new ValidationError('Calendar access was not granted. Please connect again and allow Calendor to view and edit your calendar events.', {
+      throw new ValidationError('Calendar access was not granted. Please connect again and allow Calendo to view and edit your calendar events.', {
         scopes: missing,
       });
     }

@@ -149,7 +149,7 @@ export async function deliverNotification(notificationId: string, opts: { finalA
   };
   const rendered = renderEmail(ctx);
 
-  // Calendar invitation: hosts only when Calendor is not writing to their calendar; candidates
+  // Calendar invitation: hosts only when Calendo is not writing to their calendar; candidates
   // unless Google already invited them as guests on that event (one calendar entry, not two).
   const googleInvitedCandidate = invitesCandidateAsCalendarGuest(organization.settings) && Boolean(calEvent?.externalEventId);
   const attachInvite =
@@ -159,7 +159,7 @@ export async function deliverNotification(notificationId: string, opts: { finalA
   const isCancel = n.type === 'cancellation' || n.type === 'host_cancellation_notification';
   // The business's own verified domain when it has one; otherwise the platform sender, named for the business.
   const orgSender = await organizationSender(organization.id);
-  const platformFromName = `${organization.name} (via Calendor)`;
+  const platformFromName = `${organization.name} (via Calendo)`;
   const message: EmailMessage = {
     to: { email: n.recipientEmail, name: n.recipientName },
     from: orgSender ?? undefined,
@@ -168,7 +168,7 @@ export async function deliverNotification(notificationId: string, opts: { finalA
     subject: rendered.subject,
     html: rendered.html,
     text: rendered.text,
-    headers: { 'X-Calendor-Notification': n.id, 'X-Entity-Ref-ID': n.id },
+    headers: { 'X-Calendo-Notification': n.id, 'X-Entity-Ref-ID': n.id },
     icalEvent: attachInvite
       ? {
           method: isCancel ? 'CANCEL' : 'REQUEST',

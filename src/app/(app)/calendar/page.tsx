@@ -19,7 +19,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
     <>
       <PageHeader
         title="Calendar"
-        description="Your interviews alongside busy time from your connected calendar."
+        className="mb-3 shrink-0 sm:mb-4"
         actions={
           canTeam && (
             <div className="inline-flex rounded-lg bg-zinc-200/60 p-0.5 text-sm">
@@ -32,7 +32,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
           )
         }
       />
-      <CalendarView key={scope} scope={scope} timezone={auth.user.timezone} showInterviewer={scope === 'team'} interviewers={interviewers} />
+      <CalendarView key={scope} scope={scope} timezone={auth.user.timezone} showInterviewer={scope === 'team'} interviewers={interviewers} fill />
     </>
   );
 }

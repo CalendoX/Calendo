@@ -38,7 +38,7 @@ const ACTION_LABELS: Record<string, string> = {
   'interview.sync_retried': 'Integration sync retried',
   'integration.failure': 'Integration error',
   'integration.recovered': 'Integration recovered',
-  'integration.external_change': 'Changed outside Calendor',
+  'integration.external_change': 'Changed outside Calendo',
 };
 
 const NOTIFICATION_LABELS: Record<string, string> = {

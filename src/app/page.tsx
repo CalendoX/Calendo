@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Logo } from '@/components/app/logo';
 import { Button } from '@/components/ui/button';
+import { PLANS } from '@/lib/plans';
 import { getAuth } from '@/server/auth/session';
 
 export default async function HomePage() {
@@ -21,6 +22,9 @@ export default async function HomePage() {
         <Logo />
         <nav className="flex items-center gap-2">
           <Button asChild variant="ghost">
+            <Link href="/pricing">Pricing</Link>
+          </Button>
+          <Button asChild variant="ghost">
             <Link href="/login">Sign in</Link>
           </Button>
           <Button asChild>
@@ -33,7 +37,7 @@ export default async function HomePage() {
           <p className="mb-5 inline-flex items-center gap-2 rounded-full bg-brand-50 px-3 py-1 text-sm font-medium text-brand-800 ring-1 ring-brand-200">Interview scheduling for hiring teams</p>
           <h1 className="text-4xl font-semibold tracking-tight text-zinc-900 sm:text-6xl">Book interviews without the back-and-forth.</h1>
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-zinc-600">
-            Share one link. Candidates pick a time that actually works for your interviewers, and Calendor handles the Zoom meeting, the calendar event and every follow-up email.
+            Share one link. Candidates pick a time that actually works for your interviewers, and Calendo handles the Zoom meeting, the calendar event and every follow-up email.
           </p>
           <div className="mt-10 flex flex-wrap justify-center gap-3">
             <Button asChild size="lg">
@@ -59,8 +63,48 @@ export default async function HomePage() {
             ))}
           </div>
         </section>
+        <section className="border-t border-zinc-100">
+          <div className="mx-auto max-w-6xl px-6 py-20">
+            <div className="text-center">
+              <h2 className="text-3xl font-semibold tracking-tight text-zinc-900">Free to start, priced to grow</h2>
+              <p className="mx-auto mt-4 max-w-2xl text-zinc-600">
+                Everything above is on the Free plan. Premium and Custom are for teams that outgrow it.
+              </p>
+            </div>
+            <div className="mt-10 grid gap-4 sm:grid-cols-3">
+              {PLANS.map((plan) => (
+                <Link
+                  key={plan.id}
+                  href="/pricing"
+                  className="rounded-2xl border border-zinc-200/80 bg-white p-6 shadow-card transition-colors hover:border-brand-300"
+                >
+                  <h3 className="text-base font-semibold text-zinc-900">{plan.name}</h3>
+                  <p className="mt-3 text-2xl font-semibold tracking-tight text-zinc-900">{plan.price}</p>
+                  <p className="mt-1 text-xs text-zinc-500">{plan.priceNote}</p>
+                  <p className="mt-3 text-sm leading-relaxed text-zinc-600">{plan.tagline}</p>
+                </Link>
+              ))}
+            </div>
+            <div className="mt-8 text-center">
+              <Button asChild size="lg" variant="secondary">
+                <Link href="/pricing">
+                  Compare plans <ArrowRight />
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </section>
       </main>
-      <footer className="border-t border-zinc-100 py-8 text-center text-sm text-zinc-500">© {new Date().getFullYear()} Calendor</footer>
+      <footer className="border-t border-zinc-100 py-8 text-center text-sm text-zinc-500">
+        <Link href="/pricing" className="hover:text-zinc-700">
+          Pricing
+        </Link>{' '}
+        ·{' '}
+        <a href="https://github.com/CalendoX/Calendo" target="_blank" rel="noopener noreferrer" className="hover:text-zinc-700">
+          Open source on GitHub
+        </a>{' '}
+        · © {new Date().getFullYear()} Calendo
+      </footer>
     </div>
   );
 }

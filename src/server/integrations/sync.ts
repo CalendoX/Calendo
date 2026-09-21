@@ -155,7 +155,7 @@ function meetingInput(d: Loaded): MeetingInput {
 
 /**
  * The interviewer's calendar event. When the candidate is a guest they see the description too, so
- * it then links to the candidate's own booking page (no sign-in) instead of the Calendor dashboard;
+ * it then links to the candidate's own booking page (no sign-in) instead of the Calendo dashboard;
  * the dashboard link stays in `sourceUrl`, which Google only shows to the event's creator.
  */
 function calendarInput(d: Loaded, joinUrl: string | null, candidateBookingUrl: string | null): CalendarEventInput {

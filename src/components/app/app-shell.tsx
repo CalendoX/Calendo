@@ -15,7 +15,6 @@ import {
   ScrollText,
   Settings,
   SlidersHorizontal,
-  UserCheck,
   UserCog,
   Users,
   LayoutDashboard,
@@ -45,7 +44,7 @@ export interface ShellOrg {
   name: string;
 }
 
-type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }>; exact?: boolean; count?: number };
+type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }>; exact?: boolean };
 
 const MAIN: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -91,11 +90,6 @@ function NavGroup({ title, items, pathname, onNavigate }: { title?: string; item
           >
             <Icon className={cn('size-[17px] shrink-0', active ? 'text-brand-300' : 'text-sidebar-muted/80 group-hover:text-white/80')} />
             <span className="truncate">{item.label}</span>
-            {Boolean(item.count) && (
-              <span className="ml-auto rounded-full bg-brand-500 px-1.5 text-[11px] font-semibold leading-5 text-white" aria-label={`${item.count} pending`}>
-                {item.count}
-              </span>
-            )}
           </Link>
         );
       })}
@@ -109,7 +103,6 @@ export function AppShell({
   role,
   organizations,
   appUrl,
-  platform,
   children,
 }: {
   user: ShellUser;
@@ -117,11 +110,14 @@ export function AppShell({
   role: 'admin' | 'recruiter' | 'interviewer';
   organizations: { organizationId: string; organizationName: string; role: string }[];
   appUrl: string;
-  /** Set for platform admins (the people running this deployment). */
-  platform?: { pendingSignups: number } | null;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  // The calendar is the one page whose legibility scales with the space it gets: it is a grid,
+  // not prose, so it drops the reading-width cap and fills the viewport. Every other page keeps
+  // the measured column. Below `sm` the page scrolls normally — a nested scroller on a phone
+  // fights the browser's own gestures.
+  const fullBleed = pathname === '/calendar';
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [resending, setResending] = useState(false);
@@ -150,7 +146,7 @@ export function AppShell({
   const sidebar = (
     <div className="flex h-full flex-col bg-sidebar">
       <div className="flex h-16 shrink-0 items-center justify-between px-5">
-        <Link href="/dashboard" aria-label="Calendor home">
+        <Link href="/dashboard" aria-label="Calendo home">
           <Logo tone="light" />
         </Link>
         <button className="rounded-lg p-1.5 text-sidebar-muted hover:bg-white/10 lg:hidden" onClick={() => setMobileOpen(false)} aria-label="Close menu">
@@ -185,9 +181,6 @@ export function AppShell({
         <NavGroup title="Setup" items={SETUP} pathname={pathname} />
         <NavGroup title="Organization" items={ORG} pathname={pathname} />
         {role === 'admin' && <NavGroup title="Admin" items={ADMIN} pathname={pathname} />}
-        {platform && (
-          <NavGroup title="Platform" items={[{ href: '/platform/signups', label: 'Sign-up requests', icon: UserCheck, count: platform.pendingSignups }]} pathname={pathname} />
-        )}
       </nav>
 
       <div className="border-t border-white/[0.07] p-3">
@@ -223,7 +216,7 @@ export function AppShell({
   );
 
   return (
-    <div className="min-h-screen">
+    <div className={cn('min-h-screen', fullBleed && 'sm:h-dvh sm:min-h-0 sm:overflow-hidden')}>
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 lg:block">{sidebar}</aside>
       {mobileOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
@@ -231,15 +224,15 @@ export function AppShell({
           <aside className="absolute inset-y-0 left-0 w-72 animate-slide-in">{sidebar}</aside>
         </div>
       )}
-      <div className="lg:pl-64">
-        <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-zinc-200 bg-white/90 px-4 backdrop-blur lg:hidden">
+      <div className={cn('lg:pl-64', fullBleed && 'sm:flex sm:h-full sm:flex-col')}>
+        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-3 border-b border-zinc-200 bg-white/90 px-4 backdrop-blur lg:hidden">
           <button className="rounded-lg p-1.5 text-zinc-600 hover:bg-zinc-100" onClick={() => setMobileOpen(true)} aria-label="Open menu">
             <Menu className="size-5" />
           </button>
           <Logo />
         </header>
         {!user.emailVerified && (
-          <div className="border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-center text-sm text-amber-900 lg:px-8">
+          <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-center text-sm text-amber-900 lg:px-8">
             Verify your email address to publish your booking pages.{' '}
             <button
               className="font-semibold underline underline-offset-2 disabled:opacity-50"
@@ -260,7 +253,16 @@ export function AppShell({
             </button>
           </div>
         )}
-        <main className="mx-auto w-full max-w-[1320px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</main>
+        <main
+          className={cn(
+            'mx-auto w-full',
+            fullBleed
+              ? 'max-w-none px-3 py-4 sm:flex sm:min-h-0 sm:flex-1 sm:flex-col sm:p-4 lg:p-6'
+              : 'max-w-[1320px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8',
+          )}
+        >
+          {children}
+        </main>
       </div>
     </div>
   );

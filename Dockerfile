@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1.7
 #
-# Calendor production images. Two runtime targets share one build:
+# Calendo production images. Two runtime targets share one build:
 #
-#   docker build --target web    -t calendor-web .      # Next.js server (standalone output)
-#   docker build --target worker -t calendor-worker .   # background jobs; also runs migrations:
-#                                                      #   docker run --rm calendor-worker node dist/migrate.js
+#   docker build --target web    -t calendo-web .      # Next.js server (standalone output)
+#   docker build --target worker -t calendo-worker .   # background jobs; also runs migrations:
+#                                                      #   docker run --rm calendo-worker node dist/migrate.js
 #
 # Runtime configuration comes exclusively from environment variables (see .env.example);
 # no secrets are baked into the images.
@@ -42,6 +42,7 @@ ENV NODE_ENV=production \
 # The standalone server bundles only the files it needs; static assets are copied alongside.
 COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
+COPY --chown=node:node LICENSE ./
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
@@ -55,6 +56,6 @@ ENV NODE_ENV=production
 COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/drizzle ./drizzle
-COPY --chown=node:node package.json ./
+COPY --chown=node:node package.json LICENSE ./
 USER node
 CMD ["node", "dist/worker.js"]

@@ -1,6 +1,5 @@
 import type { AuthContext } from '../auth/session';
 import type { MembershipRole } from '../db/schema';
-import { platformAdminEmails } from '../config/env';
 import { ForbiddenError, NotFoundError } from '../http/errors';
 
 /**
@@ -22,18 +21,6 @@ export const ROLE_LABELS: Record<MembershipRole, string> = {
   recruiter: 'Recruiter',
   interviewer: 'Interviewer',
 };
-
-/**
- * Platform admins run this Calendor deployment (PLATFORM_ADMIN_EMAILS) and approve new sign-ups.
- * The address must be verified, so a listed email that someone else registers first grants nothing.
- */
-export function isPlatformAdmin(ctx: AuthContext) {
-  return Boolean(ctx.user.emailVerifiedAt) && platformAdminEmails().includes(ctx.user.email.toLowerCase());
-}
-
-export function requirePlatformAdmin(ctx: AuthContext) {
-  if (!isPlatformAdmin(ctx)) throw new ForbiddenError();
-}
 
 export function isAdmin(ctx: AuthContext) {
   return ctx.membership.role === 'admin';

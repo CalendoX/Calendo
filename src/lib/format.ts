@@ -92,5 +92,5 @@ export const SYNC_STATUS_LABELS = {
   synced: 'Synced',
   failed: 'Failed',
   cancelled: 'Removed',
-  deleted_externally: 'Deleted outside Calendor',
+  deleted_externally: 'Deleted outside Calendo',
 } as const;

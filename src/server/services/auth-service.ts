@@ -1,5 +1,5 @@
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
-import { appUrl, platformAdminEmails } from '../config/env';
+import { appUrl } from '../config/env';
 import { db, type Executor } from '../db/client';
 import {
   availabilityRules,
@@ -10,7 +10,7 @@ import {
   users,
   userTokens,
 } from '../db/schema';
-import { AppError, BadRequestError, ConflictError, UnauthorizedError, ValidationError } from '../http/errors';
+import { AppError, BadRequestError, ConflictError, ForbiddenError, NotFoundError, UnauthorizedError, ValidationError } from '../http/errors';
 import type { RequestMeta } from '../http/request';
 import { enqueue } from '../jobs/queue';
 import { QUEUES, type JobPayloads } from '../jobs/definitions';
@@ -21,8 +21,8 @@ import { recordAudit } from './audit';
 import { slugify } from '@/lib/format';
 
 /**
- * Account lifecycle: sign-up (creates an organisation), login with lockout, logout, email
- * verification, password reset, invitations and password changes.
+ * Account lifecycle: sign-up (creates an organisation and signs the founder in), login with
+ * lockout, logout, email verification, password reset, invitations and password changes.
  */
 
 const LOCKOUT_THRESHOLD = 10;
@@ -127,7 +127,7 @@ export async function sendAccountEmail(
   to: string,
   name: string,
   url: string,
-  extra: { organizationName?: string; inviterName?: string; requesterEmail?: string } = {},
+  extra: { organizationName?: string; inviterName?: string } = {},
 ) {
   await enqueue(QUEUES.accountEmail, { kind, to, name, encryptedUrl: encrypt(url), ...extra });
 }
@@ -146,8 +146,7 @@ export async function signup(input: SignupInput, meta: RequestMeta) {
   const email = input.email.trim().toLowerCase();
   const policy = passwordPolicyError(input.password, { email });
   if (policy) throw new ValidationError(policy, { password: [policy] });
-  const [existing] = await db.select({ id: users.id, approvedAt: users.approvedAt }).from(users).where(eq(users.email, email)).limit(1);
-  if (existing && !existing.approvedAt) throw new ConflictError('A sign-up request for this email is already waiting for approval.', 'SIGNUP_PENDING');
+  const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
   if (existing) throw new ConflictError('An account with this email already exists. Try signing in instead.', 'EMAIL_TAKEN');
 
   const passwordHash = await hashPassword(input.password);
@@ -169,9 +168,8 @@ export async function signup(input: SignupInput, meta: RequestMeta) {
         username: await uniqueUsername(input.name || email.split('@')[0], tx),
         passwordHash,
         timezone: input.timezone,
+        // A second in the past, so the session created below outlives this "password change".
         passwordChangedAt: new Date(Date.now() - 1000),
-        // Self-service sign-ups wait for a platform admin before they can sign in.
-        approvedAt: null,
       })
       .returning();
     await tx.insert(memberships).values({ organizationId: org.id, userId: user.id, role: 'admin', status: 'active' });
@@ -188,13 +186,10 @@ export async function signup(input: SignupInput, meta: RequestMeta) {
     return { org, user, verifyToken };
   });
   await sendAccountEmail('verify_email', email, result.user.name, appUrl(`/verify-email?token=${result.verifyToken}`));
-  for (const admin of platformAdminEmails()) {
-    await sendAccountEmail('signup_request', admin, result.user.name, appUrl('/platform/signups'), {
-      organizationName: result.org.name,
-      requesterEmail: email,
-    });
-  }
-  return { user: result.user, organization: result.org };
+  // Sign-up is self-service: the founder is signed in to their new organisation straight away and
+  // verifies their email from inside the app (unverified accounts can't publish booking pages).
+  const session = await createSession(result.user.id, result.org.id, meta);
+  return { user: result.user, organization: result.org, session };
 }
 
 export async function login(emailInput: string, password: string, meta: RequestMeta) {
@@ -221,10 +216,6 @@ export async function login(emailInput: string, password: string, meta: RequestM
     throw invalid;
   }
   if (user.status !== 'active') throw new UnauthorizedError('This account has been deactivated. Contact your administrator.');
-  // Only revealed after a correct password, so it doesn't disclose which emails have signed up.
-  if (!user.approvedAt) {
-    throw new AppError(403, 'ACCOUNT_PENDING_APPROVAL', 'Your account is waiting for approval. We’ll email you as soon as it’s approved.');
-  }
   const active = await db
     .select({ organizationId: memberships.organizationId })
     .from(memberships)
@@ -243,11 +234,12 @@ export async function logout(ctx: AuthContext, meta: RequestMeta) {
   await recordAudit({ organizationId: ctx.organization.id, actor: { type: 'user', userId: ctx.user.id }, action: 'auth.logout', resourceType: 'user', resourceId: ctx.user.id, meta });
 }
 
-/** Always succeeds from the caller's perspective (no account enumeration). */
+/** Tells the caller when no usable account matches, so a mistyped address can be corrected. */
 export async function requestPasswordReset(emailInput: string, meta: RequestMeta) {
   const email = emailInput.trim().toLowerCase();
   const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
-  if (!user || user.status !== 'active') return;
+  if (!user) throw new NotFoundError('No account is registered with this email address.');
+  if (user.status !== 'active') throw new ForbiddenError('This account has been deactivated. Contact your administrator.');
   const token = await createUserToken(db, user.id, 'password_reset');
   await sendAccountEmail('password_reset', user.email, user.name, appUrl(`/reset-password?token=${token}`));
   await recordAudit({ organizationId: null, actor: { type: 'user', userId: user.id }, action: 'auth.password_reset_requested', resourceType: 'user', resourceId: user.id, meta });

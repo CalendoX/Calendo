@@ -111,7 +111,7 @@ describe('Zoom meeting lifecycle', () => {
     expect(confirmation.icalEvent?.content).toContain('LOCATION:https://us06web.zoom.us/j/');
     const allCandidateMail = JSON.stringify(outbox.to('riley@candidate.test'));
     expect(allCandidateMail).not.toContain('zak=');
-    // The host notification links to Calendor, not to the raw start URL.
+    // The host notification links to Calendo, not to the raw start URL.
     expect(JSON.stringify(outbox.to(w.host.email))).not.toContain('zak=');
 
     const view = await call(bookingViewRoute, { path: '/x', params: { token: res.body.confirmationUrl.split('/').pop() } });
@@ -334,7 +334,7 @@ describe('Zoom webhooks', () => {
     expect(row.lastError).toMatch(/Reconnect Zoom/);
   });
 
-  it('acknowledges but ignores events about meetings Calendor does not manage', async () => {
+  it('acknowledges but ignores events about meetings Calendo does not manage', async () => {
     await withZoom();
     expect((await signed({ event: 'meeting.deleted', event_ts: 1, payload: { object: { id: 42 } } })).status).toBe(204);
     expect((await signed({ event: 'recording.completed', event_ts: 2, payload: {} })).status).toBe(204);
@@ -388,14 +388,14 @@ describe('shareable connect link (/integrations/connect/:provider)', () => {
     signOut();
   });
 
-  it('sends a browser that is not signed in to Calendor to sign in first, then back to the link', async () => {
+  it('sends a browser that is not signed in to Calendo to sign in first, then back to the link', async () => {
     signOut();
     const res = await openLink('google');
     expect(res.status).toBe(303);
     expect(res.location).toBe('http://localhost:3000/login?next=%2Fintegrations%2Fconnect%2Fgoogle');
   });
 
-  it('cannot attach an account to a different Calendor user than the one who opened the link', async () => {
+  it('cannot attach an account to a different Calendo user than the one who opened the link', async () => {
     const w = await world();
     await signIn(w.host, w.org);
     const grant = zoom().authorize((await openLink('zoom')).location!);

@@ -63,7 +63,7 @@ function eventBody(input: CalendarEventInput) {
     guestsCanModify: false,
     guestsCanInviteOthers: false,
     extendedProperties: { private: { slateInterviewId: input.interviewId } },
-    source: input.sourceUrl ? { title: 'Calendor interview', url: input.sourceUrl } : undefined,
+    source: input.sourceUrl ? { title: 'Calendo interview', url: input.sourceUrl } : undefined,
   };
 }
 
@@ -299,7 +299,7 @@ export async function listChangedEvents(
   return { events, nextSyncToken, reset: false };
 }
 
-/** An event on the user's own Google calendar, with the details shown in Calendor's calendar view. */
+/** An event on the user's own Google calendar, with the details shown in Calendo's calendar view. */
 export interface ExternalEventDetails {
   id: string;
   title: string;
@@ -342,7 +342,7 @@ const EVENT_FIELDS =
 /**
  * Events that make the user busy between `start` and `end` on one calendar (recurring events
  * expanded), with titles and guests. Mirrors free/busy: skips cancelled, "free" and declined
- * events. Also skips Calendor's own interview events, which the calendar view shows already.
+ * events. Also skips Calendo's own interview events, which the calendar view shows already.
  * All-day events (dates, not instants) are placed in `zone`.
  */
 export async function listEventsInRange(token: AccessTokenSource, calendarId: string, range: { start: Date; end: Date }, zone: string): Promise<ExternalEventDetails[]> {

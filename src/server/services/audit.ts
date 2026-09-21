@@ -29,8 +29,6 @@ export type AuditAction =
   | 'organization.holiday_removed'
   | 'notification_template.updated'
   | 'user.created'
-  | 'user.approved'
-  | 'user.signup_declined'
   | 'user.invited'
   | 'user.invitation_accepted'
   | 'user.activated'

@@ -1,8 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { PasswordForm, ProfileForm } from '@/components/app/settings-forms';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
+import { PLAN_LABELS } from '@/lib/plans';
 import { requirePageAuth } from '@/server/auth/page-guards';
 import { ROLE_LABELS } from '@/server/authz/policy';
 import { appUrl } from '@/server/config/env';
@@ -21,8 +23,16 @@ export default async function SettingsPage() {
           <CardHeader title="Organization" />
           <CardBody className="flex flex-wrap items-center justify-between gap-4 text-sm">
             <div>
-              <p className="font-medium text-zinc-900">{auth.organization.name}</p>
-              <p className="text-zinc-500">Your role: {ROLE_LABELS[auth.membership.role]}</p>
+              <p className="flex flex-wrap items-center gap-2 font-medium text-zinc-900">
+                {auth.organization.name}
+                <Badge tone={auth.organization.plan === 'free' ? 'neutral' : 'brand'}>{PLAN_LABELS[auth.organization.plan]} plan</Badge>
+              </p>
+              <p className="text-zinc-500">
+                Your role: {ROLE_LABELS[auth.membership.role]} ·{' '}
+                <Link href="/pricing" className="font-medium text-brand-700 hover:underline">
+                  Compare plans
+                </Link>
+              </p>
             </div>
             {auth.membership.role === 'admin' && (
               <Link href="/admin/settings" className="font-medium text-brand-700 hover:underline">

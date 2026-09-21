@@ -67,7 +67,7 @@ export function buildIcs(e: IcsEvent): string {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Calendor//Interview Scheduling//EN',
+    'PRODID:-//Calendo//Interview Scheduling//EN',
     'CALSCALE:GREGORIAN',
     `METHOD:${e.method}`,
     'BEGIN:VEVENT',

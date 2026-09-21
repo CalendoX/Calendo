@@ -20,7 +20,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               <li className="flex gap-3"><span className="mt-2 size-1.5 shrink-0 rounded-full bg-brand-300" />Candidates book, reschedule and cancel without an account</li>
             </ul>
           </div>
-          <p className="text-xs text-sidebar-muted/70">© {new Date().getFullYear()} Calendor</p>
+          <p className="text-xs text-sidebar-muted/70">© {new Date().getFullYear()} Calendo</p>
         </div>
       </div>
       <div className="flex flex-col bg-white">

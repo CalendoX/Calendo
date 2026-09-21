@@ -331,7 +331,7 @@ ${rows.length ? html`<tr><td style="padding:20px 32px 0;"><table role="presentat
 ${actions.length ? html`<tr><td style="padding:22px 32px 0;">${actions}</td></tr>` : ''}
 ${manage.length ? html`<tr><td style="padding:14px 32px 0;font-size:14px;color:#667085;">Need to make a change? ${raw(manage.map((m) => m.value).join(' &middot; '))}</td></tr>` : ''}
 <tr><td style="padding:28px 32px 28px;font-size:12px;line-height:1.5;color:#98a2b3;border-top:1px solid #f2f4f7;margin-top:24px;">
-Sent by ${ctx.organization.name} via ${raw('Calendor')}.${ctx.recipient.kind === 'candidate' ? ' Reply to this email to reach your interviewer.' : ''}
+Sent by ${ctx.organization.name} via ${raw('Calendo')}.${ctx.recipient.kind === 'candidate' ? ' Reply to this email to reach your interviewer.' : ''}
 </td></tr>
 </table>
 </td></tr></table>
@@ -359,7 +359,7 @@ Sent by ${ctx.organization.name} via ${raw('Calendor')}.${ctx.recipient.kind ===
     c.showCandidateActions && ctx.links.reschedule ? `Reschedule: ${ctx.links.reschedule}` : '',
     c.showCandidateActions && ctx.links.cancel ? `Cancel: ${ctx.links.cancel}` : '',
     '',
-    `— ${ctx.organization.name} via Calendor`,
+    `— ${ctx.organization.name} via Calendo`,
   ]
     .filter((l, i, arr) => !(l === '' && arr[i - 1] === ''))
     .join('\n');

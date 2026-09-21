@@ -93,7 +93,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       />
 
       {sp.welcome && (
-        <Alert tone="success" title="Welcome to Calendor" className="mb-6">
+        <Alert tone="success" title="Welcome to Calendo" className="mb-6">
           Your account is ready. Follow the checklist below to publish your first scheduling link.
         </Alert>
       )}

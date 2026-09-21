@@ -13,8 +13,8 @@ function redirect(url: string) {
 
 /**
  * Shareable "connect" link (GET /integrations/connect/google|zoom): starts OAuth for whoever is
- * signed in to Calendor in *this* browser and sends them to the provider. It works from any
- * browser — people sign in to Calendor there first — while the OAuth state stays bound to that
+ * signed in to Calendo in *this* browser and sends them to the provider. It works from any
+ * browser — people sign in to Calendo there first — while the OAuth state stays bound to that
  * browser's session, so a forwarded link can never attach someone else's account to yours.
  */
 export async function GET(req: NextRequest, context: { params: Promise<{ provider: string }> }) {

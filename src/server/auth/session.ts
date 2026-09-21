@@ -9,6 +9,7 @@ import {
   sessions,
   users,
   type MembershipRole,
+  type OrganizationPlan,
   type OrganizationSettings,
 } from '../db/schema';
 import { hashToken, randomToken } from '../security/crypto';
@@ -31,6 +32,7 @@ export interface SessionOrganization {
   id: string;
   name: string;
   slug: string;
+  plan: OrganizationPlan;
   logoUrl: string | null;
   brandColor: string;
   defaultTimezone: string;
@@ -126,7 +128,7 @@ export async function resolveSessionToken(token: string): Promise<AuthContext | 
     .limit(1);
   if (!row) return null;
   const { session, user } = row;
-  if (user.status !== 'active' || !user.approvedAt) return null;
+  if (user.status !== 'active') return null;
   if (now.getTime() - session.lastSeenAt.getTime() > SESSION_IDLE_TIMEOUT_MS) return null;
   // Sessions issued before a password change are invalid.
   if (user.passwordChangedAt && session.createdAt < user.passwordChangedAt) return null;
@@ -164,6 +166,7 @@ export async function resolveSessionToken(token: string): Promise<AuthContext | 
       id: active.organization.id,
       name: active.organization.name,
       slug: active.organization.slug,
+      plan: active.organization.plan,
       logoUrl: active.organization.logoUrl,
       brandColor: active.organization.brandColor,
       defaultTimezone: active.organization.defaultTimezone,

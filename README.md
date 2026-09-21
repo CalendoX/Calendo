@@ -1,8 +1,8 @@
-# Calendor — interview scheduling for hiring teams
+# Calendo — interview scheduling for hiring teams
 
-Calendor is a multi-tenant scheduling platform for recruiters, interviewers and candidates. Interviewers
+Calendo is a multi-tenant scheduling platform for recruiters, interviewers and candidates. Interviewers
 publish booking pages for their interview types; candidates pick a time without creating an account;
-Calendor books the interview, creates the Zoom meeting, puts it on the interviewer's Google Calendar,
+Calendo books the interview, creates the Zoom meeting, puts it on the interviewer's Google Calendar,
 emails everyone, sends reminders, and keeps all of it in sync through reschedules and cancellations.
 
 - **Scheduling engine**: working hours with split shifts, date overrides, vacation days and company
@@ -14,6 +14,9 @@ emails everyone, sends reminders, and keeps all of it in sync through reschedule
 - **Google Calendar and Zoom**: real OAuth 2.0 (PKCE + state), encrypted tokens with automatic
   refresh, conflict detection, event and meeting create/update/cancel, push notifications and
   webhooks, and a retry path for every failure.
+- **Open sign-up and plans**: anyone can create an organization from the marketing site and is
+  signed in immediately, on the **Free** plan. **Premium** and **Custom** are defined in
+  `src/lib/plans.ts` and recorded on `organizations.plan`, ready for paid features.
 - **Candidate self-service**: secure, expiring, revocable links to view, reschedule or cancel.
 - **Notifications**: confirmation, reschedule, cancellation and configurable reminder emails with
   calendar invitations, delivered by a background worker with retries.
@@ -28,17 +31,19 @@ emails everyone, sends reminders, and keeps all of it in sync through reschedule
 1. [Getting started](#getting-started)
 2. [Development credentials](#development-credentials)
 3. [Environment variables](#environment-variables)
-4. [Sending email from each organization's domain](#sending-email-from-each-organizations-domain)
-5. [Connecting Google Calendar](#connecting-google-calendar)
-6. [Connecting Zoom](#connecting-zoom)
-7. [Architecture](#architecture)
-8. [Database and migrations](#database-and-migrations)
-9. [Background jobs](#background-jobs)
-10. [Testing](#testing)
-11. [Production deployment](#production-deployment)
-12. [API reference](#api-reference)
-13. [Security](#security)
-14. [Known limitations](#known-limitations)
+4. [Plans and pricing](#plans-and-pricing)
+5. [Sending email from each organization's domain](#sending-email-from-each-organizations-domain)
+6. [Connecting Google Calendar](#connecting-google-calendar)
+7. [Connecting Zoom](#connecting-zoom)
+8. [Architecture](#architecture)
+9. [Database and migrations](#database-and-migrations)
+10. [Background jobs](#background-jobs)
+11. [Testing](#testing)
+12. [Production deployment](#production-deployment)
+13. [API reference](#api-reference)
+14. [Security](#security)
+15. [Known limitations](#known-limitations)
+16. [License](#license)
 
 ---
 
@@ -154,12 +159,12 @@ All configuration is read from environment variables and validated at startup
 | `ZOOM_REDIRECT_URI` | no | Defaults to `${APP_URL}/api/integrations/zoom/callback`. |
 | `ZOOM_WEBHOOK_SECRET_TOKEN` | for Zoom webhooks | Secret Token from the app's Event Subscriptions. |
 | `WEBHOOK_BASE_URL` | no | Public HTTPS base for provider webhooks. Defaults to `APP_URL`. Google push channels are only registered when it is `https://`. |
-| `EMAIL_PROVIDER` | no | `smtp`, `resend` or `console` (default `console`). |
-| `EMAIL_FROM` / `EMAIL_REPLY_TO` | no | Platform sender, e.g. `"Calendor <scheduling@example.com>"`. Used for account emails, and for interview emails of organizations without a verified sending domain. |
+| `EMAIL_PROVIDER` | no | `smtp`, `resend`, `cloudflare` or `console` (default `console`). |
+| `EMAIL_FROM` / `EMAIL_REPLY_TO` | no | Platform sender, e.g. `"Calendo <scheduling@example.com>"`. Used for account emails, and for interview emails of organizations without a verified sending domain. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD` | for SMTP | Any SMTP service (Postmark, SES, SendGrid, Mailgun, Mailpit…). |
 | `RESEND_API_KEY` | for Resend | Resend API key. Give it **full access** so organizations can connect their own sending domains (see below). |
+| `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_EMAIL_API_TOKEN` | for Cloudflare | Cloudflare Email Service account ID and an API token that can send. The `EMAIL_FROM` domain must be onboarded under **Email → Email Sending**. |
 | `WORKER_CONCURRENCY` | no | Parallel jobs per queue per worker process (default 5). |
-| `PLATFORM_ADMIN_EMAILS` | yes, in production | Comma-separated emails of the people who run the deployment. New self-service sign-ups can't sign in until one of them approves the request under **Platform → Sign-up requests** (they're emailed about each request). The address must be verified to grant these rights. Team members invited by an organization admin don't need approval. |
 | `CORS_ALLOWED_ORIGINS` | no | Origins allowed to call the public scheduling API from other sites. |
 | `TRUST_PROXY` | no | `true` behind a load balancer, so `X-Forwarded-For` is used for rate limits and audit IPs. |
 | `LOG_LEVEL` | no | `debug`, `info`, `warn` or `error`. |
@@ -170,10 +175,41 @@ database, so there is no Redis or other queue service to configure.
 
 ---
 
+## Plans and pricing
+
+Sign-up is open: anyone can create an organization from `/signup` and is signed in immediately. No
+administrator approves anything.
+
+Every organization has a plan, stored in `organizations.plan` and defined once in
+`src/lib/plans.ts` — the catalogue behind the public `/pricing` page, the pricing block on the
+marketing page and the plan badge in **Settings → Organization**.
+
+| Plan | What it is today |
+| --- | --- |
+| `free` | The default, and the whole product as it currently stands. |
+| `premium` | Reserved for the paid features being built. Not purchasable yet. |
+| `custom` | Negotiated per organization; the pricing page points people at `EMAIL_REPLY_TO` (or the `EMAIL_FROM` address). |
+
+There is no billing and no UI for changing a plan yet, so a plan is set directly:
+
+```sql
+UPDATE organizations SET plan = 'premium' WHERE slug = 'acme';
+```
+
+When a premium feature lands, gate it on the plan the auth context already carries:
+
+```ts
+import { planIncludes } from '@/lib/plans';
+
+if (!planIncludes(auth.organization.plan, 'premium')) throw new ForbiddenError('Premium plan required');
+```
+
+---
+
 ## Sending email from each organization's domain
 
 With `EMAIL_PROVIDER=resend`, each organization's admin can connect the organization's own domain
-under **System settings → Email sending**. Calendor registers the domain with Resend and shows the
+under **System settings → Email sending**. Calendo registers the domain with Resend and shows the
 DNS records (SPF and DKIM) to publish. Once Resend verifies them, the organization's interview emails
 (confirmations, reminders, reschedules and cancellations) come from its own address, e.g.
 `"Acme Hiring" <scheduling@acme.com>`. Replies still go to the interviewer or candidate.
@@ -188,12 +224,12 @@ reserved.
 ## Connecting Google Calendar
 
 Each interviewer connects their own Google account from **Integrations → Google Calendar**.
-Calendor then:
+Calendo then:
 
 - reads free/busy from the calendars they choose, so busy times are never offered to candidates
 - writes each interview to the calendar they choose (details, candidate info, Zoom link, and a link
-  back to Calendor), and updates or deletes it when the interview changes
-- registers push notifications, so events deleted or moved directly in Google are flagged in Calendor
+  back to Calendo), and updates or deletes it when the interview changes
+- registers push notifications, so events deleted or moved directly in Google are flagged in Calendo
 
 ### Google Cloud setup
 
@@ -226,7 +262,7 @@ and only the "deleted/moved in Google" detection is skipped.
 ## Connecting Zoom
 
 Each interviewer connects their own Zoom account. For interview types whose location is **Zoom**,
-Calendor creates a meeting per interview at the right time, duration and time zone, with a waiting room
+Calendo creates a meeting per interview at the right time, duration and time zone, with a waiting room
 and the candidate as an invitee. The join link goes into the confirmation email and the calendar
 event. The meeting is updated on reschedule and deleted on cancellation. The host start URL is stored
 encrypted and only ever released to the interviewer, through a no-store redirect.
@@ -242,7 +278,7 @@ encrypted and only ever released to the interviewer, through a no-store redirect
    the Marketplace UI, because Zoom has renamed scopes over time.
 4. **Features → Event Subscriptions** (optional but recommended): endpoint
    `${WEBHOOK_BASE_URL}/api/webhooks/zoom`, events **Meeting deleted**, **Meeting updated** and
-   **App deauthorized**. Copy the **Secret Token** into `ZOOM_WEBHOOK_SECRET_TOKEN`. Calendor answers
+   **App deauthorized**. Copy the **Secret Token** into `ZOOM_WEBHOOK_SECRET_TOKEN`. Calendo answers
    Zoom's endpoint URL validation automatically.
 5. Put the client ID and secret into `ZOOM_CLIENT_ID` / `ZOOM_CLIENT_SECRET` and restart.
 
@@ -259,6 +295,7 @@ src/
     (app)/                authenticated dashboard (dashboard, interviews, calendar, event types,
                           availability, integrations, team, settings, admin/*)
     (auth)/               login, signup, password reset, email verification, invitations
+    pricing/              public pricing page (Free / Premium / Custom)
     schedule/             public booking pages      /schedule/:username[/:eventSlug]
     s/[token]             personal scheduling links
     booking/              candidate confirmation, reschedule and cancel pages (token-based)
@@ -291,7 +328,7 @@ tests/                    unit and integration tests
    availability is never trusted:
    - Free/busy is fetched **live** (never from cache). If the calendar can't be read, the request
      fails with `503 CALENDAR_UNAVAILABLE` rather than assuming the interviewer is free.
-   - Inside one transaction, Calendor takes a per-interviewer `pg_advisory_xact_lock`, reloads the
+   - Inside one transaction, Calendo takes a per-interviewer `pg_advisory_xact_lock`, reloads the
      interviewer's interviews, and re-runs `checkSlot()` (the same code that produced the slots).
    - The interview, candidate, capability tokens, pending Zoom/Calendar records, notifications and
      audit entry are written, and the sync job is enqueued in the **same transaction**, so a
@@ -449,18 +486,18 @@ On any platform (Kubernetes, ECS, Fly.io, Render…) the shape is the same:
 
 ### Single server with pm2
 
-On one server without Docker, `ecosystem.config.cjs` runs the web server (`calendor-web`, on
-`127.0.0.1:9000` behind your reverse proxy) and the worker (`calendor-worker`) under
+On one server without Docker, `ecosystem.config.cjs` runs the web server (`calendo-web`, on
+`127.0.0.1:9000` behind your reverse proxy) and the worker (`calendo-worker`) under
 [pm2](https://pm2.keymetrics.io/), both reading `.env` (with `NODE_ENV=production`).
 
 ```bash
 npm run deploy                      # build, copy static assets, migrate, (re)start both processes
 pm2 startup systemd && pm2 save     # once: restart the processes after a reboot
-pm2 logs calendor-web               # or calendor-worker
+pm2 logs calendo-web               # or calendo-worker
 ```
 
 Run `npm run deploy` again after every code change. After editing `.env` only, restart instead:
-`pm2 restart calendor-web calendor-worker --update-env`.
+`pm2 restart calendo-web calendo-worker --update-env`.
 
 ### Production checklist
 
@@ -470,7 +507,7 @@ Run `npm run deploy` again after every code change. After editing `.env` only, r
   `ENCRYPTION_KEY_PREVIOUS`.
 - OAuth redirect URIs in Google Cloud and the Zoom Marketplace match your production `APP_URL`.
   The Google app has passed verification for the calendar scopes.
-- A real email provider is configured (`EMAIL_PROVIDER=smtp` or `resend`), and your sending domain
+- A real email provider is configured (`EMAIL_PROVIDER=smtp`, `resend` or `cloudflare`), and your sending domain
   has SPF, DKIM and DMARC records.
 - At least one worker is running. Without one, no emails or reminders are sent.
 - PostgreSQL has automated backups and point-in-time recovery. Job-queue state lives in the same
@@ -565,3 +602,21 @@ endpoints use the session cookie, and mutations must come from the app's own ori
 - **Live provider verification**: the automated suite runs against protocol-faithful fakes, not
   Google and Zoom themselves. Before launch, run the workflow once end-to-end against real Google and
   Zoom test accounts with your production OAuth apps.
+
+## License
+
+Calendo is open source, licensed under the [GNU Affero General Public License v3.0](LICENSE)
+(`AGPL-3.0-only`).
+
+Copyright (C) 2026 Calendo
+
+In short:
+
+- You may use, study, modify and self-host Calendo, including for commercial purposes.
+- If you distribute Calendo or a modified version, keep the copyright and license notices and
+  license the whole work under the AGPL-3.0.
+- If you run a modified version that people use over a network (for example, as a hosted service),
+  you must offer those users its complete source code under the AGPL-3.0 (section 13).
+- Calendo comes without any warranty.
+
+This summary is for convenience only; the [LICENSE](LICENSE) file is the binding text.

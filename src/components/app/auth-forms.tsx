@@ -78,19 +78,11 @@ export function LoginForm({ next }: { next: string }) {
 }
 
 export function SignupForm() {
+  const router = useRouter();
   const [busy, setBusy] = useState(false);
-  const [requested, setRequested] = useState<string | null>(null);
   const [timezone, setTimezone] = useState('UTC');
   const f = useFieldErrors();
   useEffect(() => setTimezone(browserTimeZone()), []);
-  if (requested) {
-    return (
-      <Alert tone="success" title="Request received">
-        Thanks! Your account is waiting for approval. We’ll email <strong>{requested}</strong> as soon as it’s approved. Meanwhile, please confirm your email address
-        using the link we just sent.
-      </Alert>
-    );
-  }
   return (
     <form
       className="space-y-4"
@@ -100,7 +92,7 @@ export function SignupForm() {
         f.reset();
         setBusy(true);
         try {
-          // New accounts wait for a platform admin's approval before they can sign in.
+          // Sign-up is open to everyone: the response signs the founder in to their new organization.
           await api('/api/auth/signup', {
             body: {
               name: data.get('name'),
@@ -110,7 +102,8 @@ export function SignupForm() {
               timezone,
             },
           });
-          setRequested(String(data.get('email') ?? ''));
+          router.push('/dashboard?welcome=1');
+          router.refresh();
         } catch (err) {
           f.fromError(err);
           setBusy(false);
@@ -134,7 +127,7 @@ export function SignupForm() {
         <TimezoneSelect id="timezone" value={timezone} onChange={setTimezone} />
       </Field>
       <Button type="submit" className="w-full" size="lg" loading={busy}>
-        Request account
+        Create account
       </Button>
     </form>
   );
@@ -147,7 +140,7 @@ export function ForgotPasswordForm() {
   if (sent) {
     return (
       <Alert tone="success" title="Check your inbox">
-        If an account exists for <strong>{sent}</strong>, we’ve sent a link to reset your password. It expires in one hour.
+        We’ve sent a link to reset your password to <strong>{sent}</strong>. It expires in one hour.
       </Alert>
     );
   }

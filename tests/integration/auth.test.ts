@@ -22,7 +22,7 @@ import { GET as scheduleRoute, PUT as scheduleUpdateRoute } from '@/app/api/avai
 import { GET as zoomStartRoute } from '@/app/api/interviews/[id]/zoom/start/route';
 import { SESSION_IDLE_TIMEOUT_MS, sessionCookieName } from '@/server/auth/session';
 import { db } from '@/server/db/client';
-import { auditLogs, memberships, rateLimits, sessions, users } from '@/server/db/schema';
+import { auditLogs, memberships, organizations, rateLimits, sessions, users } from '@/server/db/schema';
 import { lastAccountEmailUrl } from '../helpers/db';
 import { cookieJar } from '../helpers/cookie-jar';
 import { createEventType, createMember, createOrg, signIn, signOut, TEST_PASSWORD, upcomingWeekday, type User } from '../helpers/fixtures';
@@ -172,25 +172,24 @@ describe('password reset', () => {
     expect(replay.body.error.code).toBe('INVALID_TOKEN');
   });
 
-  it('does not reveal whether an account exists', async () => {
+  it('tells the user when the email address is not registered', async () => {
     const res = await call(forgotRoute, { path: '/x', body: { email: 'ghost@example.test' } });
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ok: true });
+    expect(res.status).toBe(404);
+    expect(res.body.error.message).toBe('No account is registered with this email address.');
     await expect(lastAccountEmailUrl('ghost@example.test')).rejects.toThrow();
   });
 });
 
 describe('sign-up and email verification', () => {
-  it('creates an organisation awaiting approval and verifies the founder’s email', async () => {
+  it('signs anyone up, signs them in as their organisation’s admin, and verifies their email', async () => {
     const res = await call(signupRoute, {
       path: '/x',
       body: { name: 'Avery Chen', email: 'avery@startup.test', password: 'Launch-Day-Passphrase-1', organizationName: 'Startup Inc', timezone: 'America/Denver' },
     });
     expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ pendingApproval: true, user: { email: 'avery@startup.test' } });
-    // No session until a platform admin approves the account (see signup-approval.test.ts).
-    expect(res.headers.get('set-cookie')).toBeNull();
-    expect((await me()).status).toBe(401);
+    expect(res.body).toMatchObject({ user: { email: 'avery@startup.test' } });
+    // Sign-up is open: no approval step, and the founder starts the session straight away.
+    expect((await me()).body).toMatchObject({ role: 'admin', organization: { name: 'Startup Inc' } });
 
     const url = await lastAccountEmailUrl('avery@startup.test', 'verify_email');
     expect((await call(verifyRoute, { path: '/x', body: { token: url.searchParams.get('token') } })).status).toBe(200);
@@ -203,7 +202,16 @@ describe('sign-up and email verification', () => {
       body: { name: 'Avery', email: 'avery@startup.test', password: 'Launch-Day-Passphrase-1', organizationName: 'Again', timezone: 'UTC' },
     });
     expect(dup.status).toBe(409);
-    expect(dup.body.error.code).toBe('SIGNUP_PENDING');
+    expect(dup.body.error.code).toBe('EMAIL_TAKEN');
+  });
+
+  it('starts every new organisation on the Free plan', async () => {
+    await call(signupRoute, {
+      path: '/x',
+      body: { name: 'Sam Rivera', email: 'sam@startup.test', password: 'Launch-Day-Passphrase-1', organizationName: 'Rivera Talent', timezone: 'UTC' },
+    });
+    const [org] = await db.select().from(organizations).where(eq(organizations.name, 'Rivera Talent'));
+    expect(org.plan).toBe('free');
   });
 });
 

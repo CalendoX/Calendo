@@ -254,7 +254,7 @@ describe('calendar event lifecycle', () => {
     expect(event.attendees).toEqual([{ email: 'riley@candidate.test', displayName: 'Riley Carter' }]);
     expect(event.sendUpdates).toBe('all');
     // The candidate can read the description: it links to their own booking page (no sign-in), never
-    // the Calendor dashboard. The interviewer's dashboard link is in `source`, visible only to them.
+    // the Calendo dashboard. The interviewer's dashboard link is in `source`, visible only to them.
     expect(event.description).toMatch(/View, reschedule or cancel this booking: http:\/\/localhost:3000\/booking\/[A-Za-z0-9_-]+/);
     expect(event.description).not.toContain('/interviews/');
     expect((event as { source?: { url: string } }).source?.url).toBe(`http://localhost:3000/interviews/${interview.id}`);
@@ -267,12 +267,12 @@ describe('calendar event lifecycle', () => {
     const [event] = google().liveEvents();
     expect(event.attendees).toEqual([]);
     expect(event.sendUpdates).toBe('none');
-    // Only the interviewer sees this event, so it links straight to the interview in Calendor.
+    // Only the interviewer sees this event, so it links straight to the interview in Calendo.
     expect(event.description).toContain(`Interview details: http://localhost:3000/interviews/${interview.id}`);
     expect(event.description).not.toContain('/booking/');
   });
 
-  it("doesn't also attach Calendor's calendar invite for candidates Google already invited", async () => {
+  it("doesn't also attach Calendo's calendar invite for candidates Google already invited", async () => {
     const w = await connected();
     await book(w.host, w.eventType, upcomingWeekday(TZ, '10:00'), { email: 'guest@candidate.test' });
     await deliverDueNotifications();
@@ -281,7 +281,7 @@ describe('calendar event lifecycle', () => {
     expect(confirmation.icalEvent).toBeUndefined();
   });
 
-  it("attaches Calendor's calendar invite when guest invites are off", async () => {
+  it("attaches Calendo's calendar invite when guest invites are off", async () => {
     const w = await connected({ addCandidateAsCalendarAttendee: false });
     await book(w.host, w.eventType, upcomingWeekday(TZ, '10:00'), { email: 'guest@candidate.test' });
     await deliverDueNotifications();
@@ -472,7 +472,7 @@ describe('Google push notifications (webhook)', () => {
     const changes = await db.select().from(auditLogs).where(eq(auditLogs.action, 'integration.external_change'));
     expect(changes[0].metadata).toMatchObject({ provider: 'google_calendar', change: 'event_deleted' });
 
-    // The interviewer chooses to restore it from Calendor.
+    // The interviewer chooses to restore it from Calendo.
     await signIn(w.host);
     const retry = await call(syncRoute, { path: '/x', params: { id: interview.id }, body: {} });
     expect(retry.body.calendar).toBe('ok');
@@ -522,7 +522,7 @@ describe('calendar view: Google Calendar events', () => {
       ],
     });
     event('untitled', addMinutes(at, 120), 30, { hangoutLink: 'javascript:alert(1)' });
-    // Not shown: free time, events the user declined, Calendor's own interview events, other days.
+    // Not shown: free time, events the user declined, Calendo's own interview events, other days.
     event('focus', addMinutes(at, 60), 30, { summary: 'Focus time', transparency: 'transparent' });
     event('declined', addMinutes(at, 180), 30, { summary: 'Skipped', attendees: [{ email: 'priya.interviews@gmail.test', self: true, responseStatus: 'declined' }] });
     event('slateabc', addMinutes(at, 240), 30, { summary: 'Interview', extendedProperties: { private: { slateInterviewId: randomUUID() } } });

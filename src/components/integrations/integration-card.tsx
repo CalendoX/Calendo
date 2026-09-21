@@ -110,7 +110,7 @@ export function ConnectButton({
         value={() => new URL(path, window.location.origin).href}
         label={`Copy link to connect ${meta.name} from another browser`}
         title="Copy link to connect from another browser"
-        copiedMessage="Link copied. Open it in any browser — you’ll sign in to Calendor there first if needed."
+        copiedMessage="Link copied. Open it in any browser — you’ll sign in to Calendo there first if needed."
         onCopied={() => setAwaitingReturn(true)}
       />
     </span>
@@ -168,7 +168,7 @@ export function IntegrationCard({ integration, pushNotifications }: { integratio
             </Alert>
           )}
           {error && integration.lastError && (
-            <Alert tone="error" className="mt-4" title="Calendor lost access to this account">
+            <Alert tone="error" className="mt-4" title="Calendo lost access to this account">
               {integration.lastError}
               {integration.provider === 'google_calendar' && ' Booking pages are paused until you reconnect, so candidates can’t double-book you.'}
             </Alert>

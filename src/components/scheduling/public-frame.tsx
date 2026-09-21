@@ -2,13 +2,13 @@ import Link from 'next/link';
 import { LogoMark } from '@/components/app/logo';
 import { cn } from '@/lib/cn';
 
-/** Chrome for candidate-facing pages: organisation branding + "Powered by Calendor". */
+/** Chrome for candidate-facing pages: organisation branding + "Powered by Calendo". */
 export function PublicFrame({ children, width = 'wide' }: { children: React.ReactNode; width?: 'wide' | 'narrow' }) {
   return (
     <div className="flex min-h-screen flex-col items-center bg-[#f3f4f1] px-3 py-6 sm:px-6 sm:py-12">
       <div className={cn('w-full', width === 'wide' ? 'max-w-[1060px]' : 'max-w-[640px]')}>{children}</div>
       <Link href="/" className="mt-8 inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-600">
-        <LogoMark className="size-4" /> Powered by Calendor
+        <LogoMark className="size-4" /> Powered by Calendo
       </Link>
     </div>
   );

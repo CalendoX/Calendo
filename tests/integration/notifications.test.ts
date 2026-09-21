@@ -176,7 +176,7 @@ describe('organisation email templates', () => {
 });
 
 describe('candidate-facing links', () => {
-  it('never sends candidates a link to the Calendor dashboard, which needs a team sign-in', async () => {
+  it('never sends candidates a link to the Calendo dashboard, which needs a team sign-in', async () => {
     const w = await world();
     const { email, interviewId } = await book(w.host, w.eventType, upcomingWeekday(TZ, '10:00', 4));
     await deliverDueNotifications();

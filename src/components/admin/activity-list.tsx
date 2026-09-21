@@ -33,8 +33,6 @@ const VERBS: Record<string, string> = {
   'organization.holiday_removed': 'removed a company holiday',
   'notification_template.updated': 'updated an email template',
   'user.created': 'created a user',
-  'user.approved': 'approved a sign-up',
-  'user.signup_declined': 'declined a sign-up',
   'user.invited': 'invited a user',
   'user.invitation_accepted': 'accepted their invitation',
   'user.activated': 'reactivated a user',
@@ -59,7 +57,7 @@ const VERBS: Record<string, string> = {
   'integration.calendars_updated': 'changed calendar settings',
   'integration.failure': 'reported an integration failure',
   'integration.recovered': 'recovered an integration',
-  'integration.external_change': 'detected a change outside Calendor',
+  'integration.external_change': 'detected a change outside Calendo',
 };
 
 export function describeActivity(a: ActivityItem): string {

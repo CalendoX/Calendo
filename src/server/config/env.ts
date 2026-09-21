@@ -20,7 +20,7 @@ const optionalString = z
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   APP_URL: z.url().default('http://localhost:9000'),
-  APP_NAME: z.string().default('Calendor'),
+  APP_NAME: z.string().default('Calendo'),
 
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
@@ -45,8 +45,8 @@ const EnvSchema = z.object({
   /** Public HTTPS base URL used for provider push notifications (defaults to APP_URL). */
   WEBHOOK_BASE_URL: optionalString,
 
-  EMAIL_PROVIDER: z.enum(['smtp', 'resend', 'console']).default('console'),
-  EMAIL_FROM: z.string().default('Calendor <no-reply@localhost>'),
+  EMAIL_PROVIDER: z.enum(['smtp', 'resend', 'cloudflare', 'console']).default('console'),
+  EMAIL_FROM: z.string().default('Calendo <no-reply@localhost>'),
   EMAIL_REPLY_TO: optionalString,
   SMTP_HOST: optionalString,
   SMTP_PORT: z.coerce.number().int().positive().default(587),
@@ -54,10 +54,11 @@ const EnvSchema = z.object({
   SMTP_PASSWORD: optionalString,
   SMTP_SECURE: booleanish.default(false),
   RESEND_API_KEY: optionalString,
+  /** Cloudflare Email Service (EMAIL_PROVIDER=cloudflare): account ID and an API token allowed to send. */
+  CLOUDFLARE_ACCOUNT_ID: optionalString,
+  CLOUDFLARE_EMAIL_API_TOKEN: optionalString,
 
   CORS_ALLOWED_ORIGINS: optionalString,
-  /** Comma-separated emails of the people who run this Calendor deployment and approve sign-ups. */
-  PLATFORM_ADMIN_EMAILS: optionalString,
   TRUST_PROXY: booleanish.default(false),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
@@ -80,6 +81,11 @@ export function env(): Env {
   if (parsed.data.EMAIL_PROVIDER === 'resend' && !parsed.data.RESEND_API_KEY) {
     throw new Error('Invalid environment configuration: RESEND_API_KEY is required when EMAIL_PROVIDER=resend');
   }
+  if (parsed.data.EMAIL_PROVIDER === 'cloudflare' && !(parsed.data.CLOUDFLARE_ACCOUNT_ID && parsed.data.CLOUDFLARE_EMAIL_API_TOKEN)) {
+    throw new Error(
+      'Invalid environment configuration: CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_EMAIL_API_TOKEN are required when EMAIL_PROVIDER=cloudflare',
+    );
+  }
   cached = parsed.data;
   return cached;
 }
@@ -94,11 +100,13 @@ export function appUrl(path = ''): string {
   return path ? `${base}${path.startsWith('/') ? path : `/${path}`}` : base;
 }
 
-export function platformAdminEmails(): string[] {
-  return (env().PLATFORM_ADMIN_EMAILS ?? '')
-    .split(',')
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
+/**
+ * Where people are invited to write about the Custom plan. `EMAIL_REPLY_TO` is the address the
+ * deployment already asks recipients to reply to; the sender address is the fallback.
+ */
+export function contactEmail(): string {
+  const e = env();
+  return e.EMAIL_REPLY_TO ?? /<([^>]+)>/.exec(e.EMAIL_FROM)?.[1] ?? e.EMAIL_FROM;
 }
 
 export function isProduction() {

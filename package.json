@@ -1,8 +1,9 @@
 {
-  "name": "calendor-scheduling",
+  "name": "calendo-scheduling",
   "version": "1.0.0",
   "private": true,
-  "description": "Calendor — interview scheduling platform for hiring teams",
+  "license": "AGPL-3.0-only",
+  "description": "Calendo — interview scheduling platform for hiring teams",
   "type": "module",
   "engines": {
     "node": ">=22.12.0"

@@ -3,9 +3,10 @@ import { env } from '../config/env';
 
 /**
  * Transactional email transport. Select with EMAIL_PROVIDER:
- *   smtp    — any SMTP server (Postmark, SES, SendGrid, Mailgun, Mailpit in development)
- *   resend  — Resend HTTP API
- *   console — log emails to stdout (development / CI only)
+ *   smtp        — any SMTP server (Postmark, SES, SendGrid, Mailgun, Mailpit in development)
+ *   resend      — Resend HTTP API
+ *   cloudflare  — Cloudflare Email Service REST API (the sender's domain must be onboarded for sending)
+ *   console     — log emails to stdout (development / CI only)
  */
 
 export interface EmailAttachment {
@@ -116,6 +117,59 @@ class ResendProvider implements EmailProvider {
   }
 }
 
+interface CloudflareSendResponse {
+  success?: boolean;
+  errors?: { code: number; message: string }[];
+  result?: { delivered: string[]; permanent_bounces: string[]; queued: string[] } | null;
+}
+
+/** https://developers.cloudflare.com/email-service/api/send-emails/rest-api/ */
+class CloudflareProvider implements EmailProvider {
+  readonly name = 'cloudflare';
+  async send(m: EmailMessage) {
+    const from = m.from ?? platformSender();
+    const attachments = [...(m.attachments ?? [])];
+    if (m.icalEvent) attachments.push({ filename: 'invite.ics', content: m.icalEvent.content, contentType: `text/calendar; method=${m.icalEvent.method}` });
+    const replyTo = m.replyTo ?? env().EMAIL_REPLY_TO;
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(env().CLOUDFLARE_ACCOUNT_ID!)}/email/sending/send`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${env().CLOUDFLARE_EMAIL_API_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: { address: from.address, name: (m.fromName ?? from.name).replace(/["\\\r\n]/g, '') },
+          to: m.to.email,
+          ...(replyTo ? { reply_to: replyTo } : {}),
+          subject: m.subject,
+          html: m.html,
+          text: m.text,
+          ...(m.headers ? { headers: m.headers } : {}),
+          ...(attachments.length
+            ? {
+                attachments: attachments.map((a) => ({
+                  filename: a.filename,
+                  content: Buffer.from(a.content).toString('base64'),
+                  type: a.contentType,
+                  disposition: 'attachment',
+                })),
+              }
+            : {}),
+        }),
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+    const body = (await res.json().catch(() => ({}))) as CloudflareSendResponse;
+    if (!res.ok || !body.success) {
+      const detail = body.errors?.map((e) => `${e.code} ${e.message}`).join('; ') || 'unknown error';
+      throw new Error(`Cloudflare Email Service error ${res.status}: ${detail}`);
+    }
+    if (body.result?.permanent_bounces.includes(m.to.email)) {
+      throw new Error(`Cloudflare Email Service: ${m.to.email} bounced permanently`);
+    }
+    return { messageId: null };
+  }
+}
+
 class ConsoleProvider implements EmailProvider {
   readonly name = 'console';
   async send(m: EmailMessage) {
@@ -136,6 +190,9 @@ export function getEmailProvider(): EmailProvider {
         break;
       case 'resend':
         provider = new ResendProvider();
+        break;
+      case 'cloudflare':
+        provider = new CloudflareProvider();
         break;
       default:
         provider = new ConsoleProvider();

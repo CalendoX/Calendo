@@ -237,7 +237,7 @@ export function OrgSettingsForm({ initial }: { initial: OrgSettingsValue }) {
               <span className="block text-sm font-medium text-zinc-800">Add candidates as guests on Google Calendar events</span>
               <span className="block text-xs text-zinc-500">
                 Google emails the candidate an invitation from the interviewer’s calendar, so the interview appears in their calendar. When off, candidates only get
-                Calendor’s calendar invite by email.
+                Calendo’s calendar invite by email.
               </span>
             </span>
             <Switch checked={s.addCandidateAsCalendarAttendee} onCheckedChange={(c) => setS({ addCandidateAsCalendarAttendee: c })} />
@@ -361,7 +361,7 @@ export function TemplatesEditor({ templates }: { templates: { type: string; subj
       </ul>
       <Dialog open={Boolean(editing)} onOpenChange={(o) => !o && setEditing(null)}>
         {editing && (
-          <DialogContent title={`Edit “${TEMPLATE_LABELS[editing.type]?.label ?? editing.type}” email`} description="Leave blank to use Calendor’s default copy. Interview details, links and the calendar invite are always included.">
+          <DialogContent title={`Edit “${TEMPLATE_LABELS[editing.type]?.label ?? editing.type}” email`} description="Leave blank to use Calendo’s default copy. Interview details, links and the calendar invite are always included.">
             <form
               className="space-y-4"
               onSubmit={async (e) => {

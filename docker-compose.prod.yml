@@ -36,7 +36,7 @@ services:
   migrate:
     <<: *app-env
     build: { context: ., target: worker }
-    image: calendor-worker
+    image: calendo-worker
     command: ["node", "dist/migrate.js"]
     restart: "no"
     depends_on:
@@ -45,7 +45,7 @@ services:
   web:
     <<: *app-env
     build: { context: ., target: web }
-    image: calendor-web
+    image: calendo-web
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"
@@ -54,7 +54,7 @@ services:
 
   worker:
     <<: *app-env
-    image: calendor-worker
+    image: calendo-worker
     restart: unless-stopped
     depends_on:
       migrate: { condition: service_completed_successfully }

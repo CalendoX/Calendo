@@ -1,5 +1,5 @@
 /**
- * Calendor background worker.
+ * Calendo background worker.
  *
  * Runs every asynchronous task: integration sync (Zoom / Google Calendar), email delivery,
  * reminders, webhook processing and periodic maintenance. Run one or more instances alongside

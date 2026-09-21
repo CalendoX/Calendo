@@ -19,7 +19,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 /*
- * Relational schema for the Calendor interview scheduling platform.
+ * Relational schema for the Calendo interview scheduling platform.
  *
  * Conventions:
  *  - Every tenant-owned row carries `organization_id`; repositories always filter on it.
@@ -40,6 +40,7 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () =>
 // Enums
 // ---------------------------------------------------------------------------------------------
 
+export const organizationPlan = pgEnum('organization_plan', ['free', 'premium', 'custom']);
 export const membershipRole = pgEnum('membership_role', ['admin', 'recruiter', 'interviewer']);
 export const membershipStatus = pgEnum('membership_status', ['active', 'invited', 'deactivated']);
 export const userStatus = pgEnum('user_status', ['active', 'deactivated']);
@@ -55,6 +56,7 @@ export const syncStatus = pgEnum('sync_status', ['pending', 'synced', 'failed', 
 export const notificationStatus = pgEnum('notification_status', ['pending', 'queued', 'sent', 'failed', 'skipped']);
 export const webhookStatus = pgEnum('webhook_status', ['received', 'processed', 'failed', 'ignored']);
 
+export type OrganizationPlan = (typeof organizationPlan.enumValues)[number];
 export type MembershipRole = (typeof membershipRole.enumValues)[number];
 export type InterviewStatus = (typeof interviewStatus.enumValues)[number];
 export type LocationType = (typeof locationType.enumValues)[number];
@@ -128,6 +130,8 @@ export const organizations = pgTable('organizations', {
   id: uuid().primaryKey().defaultRandom(),
   name: text().notNull(),
   slug: text().notNull().unique(),
+  /** Pricing tier. Everything ships on `free` today; see src/lib/plans.ts for the catalogue. */
+  plan: organizationPlan().notNull().default('free'),
   logoUrl: text(),
   brandColor: text().notNull().default('#0e7c66'),
   defaultTimezone: text().notNull().default('UTC'),
@@ -145,12 +149,6 @@ export const users = pgTable(
     username: text().notNull(),
     passwordHash: text(),
     emailVerifiedAt: ts(),
-    /**
-     * When a platform admin approved the account. Self-service sign-ups start as null (pending) and
-     * cannot sign in until approved; accounts created any other way (e.g. team invitations) are
-     * approved on creation.
-     */
-    approvedAt: ts().defaultNow(),
     timezone: text().notNull().default('UTC'),
     title: text(),
     status: userStatus().notNull().default('active'),

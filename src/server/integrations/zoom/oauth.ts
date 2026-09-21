@@ -8,7 +8,7 @@ export const ZOOM_REVOKE_URL = 'https://zoom.us/oauth/revoke';
 export const ZOOM_API = 'https://api.zoom.us/v2';
 
 /**
- * Scopes Calendor's Zoom calls need. Zoom grants whatever the Marketplace app is configured with
+ * Scopes Calendo's Zoom calls need. Zoom grants whatever the Marketplace app is configured with
  * (they are not requested at authorisation time), so each is also satisfied by its admin variant
  * or the equivalent classic scope.
  */

@@ -232,7 +232,7 @@ export interface CalendarOverlay {
 }
 
 /**
- * The user's *own* Google Calendar for Calendor's calendar view: event details from every
+ * The user's *own* Google Calendar for Calendo's calendar view: event details from every
  * "check for conflicts" calendar they can read, and plain busy blocks for calendars shared with
  * them as free/busy only (or whose events can't be read). Never used to show one person's
  * events to anyone else.

@@ -36,6 +36,13 @@
       "when": 1789838786747,
       "tag": "0004_user_approval",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789997391517,
+      "tag": "0005_organization_plans",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,5 @@
 /**
- * Browser-side JSON client for the Calendor REST API. Errors are normalised into ApiError so forms
+ * Browser-side JSON client for the Calendo REST API. Errors are normalised into ApiError so forms
  * can show field-level messages (`error.fieldErrors`).
  */
 

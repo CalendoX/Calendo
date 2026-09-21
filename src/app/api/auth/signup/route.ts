@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { setSessionCookie } from '@/server/auth/session';
 import { apiRoute, assertSameOrigin, json } from '@/server/http/handler';
 import { requestMeta } from '@/server/http/request';
 import { parseJsonBody, zEmail, zName, zTimeZone } from '@/server/http/validation';
@@ -18,7 +19,8 @@ export const POST = apiRoute(async (req) => {
   const meta = requestMeta(req);
   await enforceRateLimit(`signup:ip:${meta.ip}`, LIMITS.signupPerIp.limit, LIMITS.signupPerIp.window);
   const body = await parseJsonBody(req, Body);
-  // The account waits for a platform admin's approval: no session until then.
-  const { user } = await signup(body, meta);
-  return json({ user: { id: user.id, name: user.name, email: user.email }, pendingApproval: true }, 201);
+  // Sign-up is open to everyone: the new organisation's founder is signed in immediately.
+  const { user, session } = await signup(body, meta);
+  await setSessionCookie(session.token, session.expiresAt);
+  return json({ user: { id: user.id, name: user.name, email: user.email } }, 201);
 });

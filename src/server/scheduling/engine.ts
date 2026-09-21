@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon';
 
 /**
- * Calendor scheduling engine.
+ * Calendo scheduling engine.
  *
  * A pure, dependency-free (apart from Luxon for IANA time-zone math) module that answers two
  * questions:

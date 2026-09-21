@@ -84,7 +84,7 @@ describe('organisation sending domains', () => {
     // Not verified yet: the platform sender, named for the business.
     const before = await confirmationFor(w, '10:00');
     expect(before.from).toBeUndefined();
-    expect(before.fromName).toBe('Acme (via Calendor)');
+    expect(before.fromName).toBe('Acme (via Calendo)');
 
     const pending = await verify();
     expect(pending.body.domain).toMatchObject({ verified: false, status: 'pending' });
@@ -113,7 +113,7 @@ describe('organisation sending domains', () => {
     outbox.rejectCustomSenders = true;
     const message = await confirmationFor(w);
     expect(message.from).toBeUndefined();
-    expect(message.fromName).toBe('Acme (via Calendor)');
+    expect(message.fromName).toBe('Acme (via Calendo)');
     expect((await row(w.org))!.status).toBe('failed');
   });
 
