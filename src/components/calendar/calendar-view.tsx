@@ -3,7 +3,7 @@
 import { DateTime } from 'luxon';
 import { ArrowRight, CalendarClock, ChevronLeft, ChevronRight, Clock, ExternalLink, Globe2, MapPin, Phone, RefreshCw, User, Users, Video } from 'lucide-react';
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { InterviewStatusBadge, SyncBadge } from '@/components/interviews/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -50,10 +50,23 @@ type GridEntry = { kind: 'interview'; interview: CalItem } | { kind: 'external';
 
 const RESPONSE_LABELS: Record<string, string> = { accepted: 'Going', declined: 'Declined', tentative: 'Maybe', needsAction: 'Awaiting reply' };
 
-const HOUR_PX = 56;
 /** The working day gets full contrast; the hours outside it are dimmed so the eye lands here first. */
 const WORK_START_HOUR = 8;
 const WORK_END_HOUR = 19;
+/**
+ * The hour height is sized so the whole working day (plus a quarter hour either side) fits the
+ * visible grid without scrolling, within bounds that keep a 15-minute interview legible and stop a
+ * tall monitor from stretching the day out. DEFAULT_HOUR_PX only covers the server render.
+ */
+const FIT_HOURS = WORK_END_HOUR - WORK_START_HOUR + 0.5;
+const MIN_HOUR_PX = 44;
+const MAX_HOUR_PX = 64;
+const DEFAULT_HOUR_PX = 52;
+/** Chips are drawn at their real duration; only something shorter than this is stretched to it. */
+const MIN_CHIP_PX = 10;
+/** Room for one line of chip text — what a later chip must leave clear before it may stack on top. */
+const NEST_PX = 18;
+const CHIP_LINE_PX = 14;
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 /**
  * Not real-time on purpose: the view re-fetches quietly when the user comes back to the tab and the
@@ -101,37 +114,61 @@ function rangeFor(view: View, cursor: DateTime) {
   return { start, end: start.plus({ days: 1 }) };
 }
 
-/** Assigns side-by-side lanes to overlapping events within one day column. */
+const overlaps = (a: { start: number; end: number }, b: { start: number; end: number }) => a.start < b.end && b.start < a.end;
+
+/**
+ * Places the events of one day column the way Google Calendar does. Events that start together
+ * sit side by side in lanes. An event that starts at least a title line (NEST_PX) below another
+ * stacks on top of it, indented, instead of squeezing both into half-width columns: the earlier
+ * title stays readable and the later chip keeps most of the width. Chips then widen into any lanes
+ * to their right that are free for their whole duration. `left`/`right` are fractions of the column.
+ * Back-to-back events don't overlap, so they stack in one lane rather than splitting it.
+ */
 function layoutDay<T>(items: { item: T; start: number; end: number }[]) {
+  type Placed = { item: T; start: number; end: number; lane: number; depth: number; left: number; right: number };
   const sorted = [...items].sort((a, b) => a.start - b.start || b.end - a.end);
-  const out: { item: T; start: number; end: number; lane: number; lanes: number }[] = [];
-  let cluster: typeof out = [];
-  let clusterEnd = -1;
+  const out: Placed[] = [];
+  let cluster: Placed[] = [];
+  let clusterEnd = -Infinity;
   const flush = () => {
     const lanes = Math.max(1, ...cluster.map((c) => c.lane + 1));
-    cluster.forEach((c) => (c.lanes = lanes));
+    for (const c of cluster) {
+      let span = 1;
+      while (c.lane + span < lanes && !cluster.some((o) => o.lane === c.lane + span && overlaps(o, c))) span++;
+      // Each level of stacking indents by 35% of what's left, so deep stacks never run out of room.
+      c.left = (c.lane + (1 - 0.65 ** c.depth)) / lanes;
+      c.right = (c.lane + span) / lanes;
+    }
     out.push(...cluster);
     cluster = [];
   };
   for (const ev of sorted) {
     if (ev.start >= clusterEnd && cluster.length) flush();
-    const used = new Set(cluster.filter((c) => c.end > ev.start).map((c) => c.lane));
-    let lane = 0;
-    while (used.has(lane)) lane++;
-    cluster.push({ ...ev, lane, lanes: 1 });
+    const lanes = Array.from({ length: Math.max(0, ...cluster.map((c) => c.lane + 1)) }, (_, i) => i);
+    const under = (lane: number) => cluster.filter((c) => c.lane === lane && overlaps(c, ev));
+    // A lane that's free for this event first, so nothing gets covered when it needn't be; then
+    // stacking where every chip underneath started a title line earlier; otherwise a new lane.
+    const lane =
+      lanes.find((l) => under(l).length === 0) ?? lanes.find((l) => under(l).every((c) => ev.start - c.start >= NEST_PX)) ?? lanes.length;
+    const below = under(lane);
+    cluster.push({ ...ev, lane, depth: below.length ? Math.max(...below.map((c) => c.depth)) + 1 : 0, left: 0, right: 1 });
     clusterEnd = Math.max(clusterEnd, ev.end);
   }
   if (cluster.length) flush();
   return out;
 }
 
-/**
- * Overlapping events split the column evenly. A cascade (each lane overlapping the one behind)
- * buys width but covers the neighbour's title, which is worse than a narrow chip: the time and
- * name stay readable when they are merely narrow, and the chip lifts to full detail on hover.
- */
-function laneGeometry(lane: number, lanes: number) {
-  return { left: `calc(${(lane / lanes) * 100}% + 3px)`, width: `calc(${100 / lanes}% - 6px)`, zIndex: lane + 1 };
+/** Google Calendar's compact clock: "3pm", "3:30pm". */
+function clock(dt: DateTime, meridiem = true) {
+  const time = dt.toFormat(dt.minute === 0 ? 'h' : 'h:mm');
+  return meridiem ? `${time}${dt.toFormat('a').toLowerCase()}` : time;
+}
+
+const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+
+/** "10 – 11am", or "11:30am – 12:15pm" when the range crosses noon. */
+function clockRange(start: DateTime, end: DateTime) {
+  return `${clock(start, start.toFormat('a') !== end.toFormat('a'))} – ${clock(end)}`;
 }
 
 function LocationIcon({ type, className }: { type: string; className?: string }) {
@@ -172,6 +209,7 @@ export function CalendarView({
   const [selected, setSelected] = useState<CalItem | null>(null);
   const [selectedExternal, setSelectedExternal] = useState<ExternalEvent | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [hourPx, setHourPx] = useState(DEFAULT_HOUR_PX);
   const [refreshing, setRefreshing] = useState(false);
   const requestRef = useRef<AbortController | null>(null);
   const lastFetchRef = useRef(0);
@@ -266,9 +304,30 @@ export function CalendarView({
     };
   }, [reload]);
 
-  useEffect(() => {
-    if (isGrid && scrollRef.current) scrollRef.current.scrollTop = HOUR_PX * (WORK_START_HOUR - 0.5);
+  // Layout effects so the grid is measured and scrolled before it is first painted.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!isGrid || !el) return;
+    const fit = () => setHourPx(Math.min(MAX_HOUR_PX, Math.max(MIN_HOUR_PX, Math.floor(el.clientHeight / FIT_HOURS))));
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [isGrid]);
+
+  // Opening the grid starts at the working day; a resize that changes the hour height keeps the
+  // same time at the top instead of jumping.
+  const scrolledAtHourPx = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!isGrid || !el) {
+      scrolledAtHourPx.current = null;
+      return;
+    }
+    const prev = scrolledAtHourPx.current;
+    el.scrollTop = prev === null ? hourPx * (WORK_START_HOUR - 0.25) : (el.scrollTop * hourPx) / prev;
+    scrolledAtHourPx.current = hourPx;
+  }, [isGrid, hourPx]);
 
   const step = (dir: 1 | -1) =>
     setCursor((c) => c.plus(view === 'week' ? { weeks: dir } : view === 'day' ? { days: dir } : { months: dir }));
@@ -289,6 +348,13 @@ export function CalendarView({
   }, [items, timezone]);
 
   const liveItems = useMemo(() => (items ?? []).filter((i) => i.status !== 'cancelled'), [items]);
+  /**
+   * The headline count for the range on screen. `external` is only ever filled for the week and day
+   * grids, which draw the Google overlay; the month and agenda views show interviews alone and so
+   * count them alone. Either way the number matches what the view actually shows.
+   */
+  const shownCount = liveItems.length + external.length;
+  const shownNoun = external.length > 0 ? 'event' : 'interview';
   /** The next interview that hasn't started yet — called out in the sidebar and the agenda. */
   const nextUp = useMemo(() => {
     if (!now) return null;
@@ -312,6 +378,12 @@ export function CalendarView({
       ),
     [external, range, timezone],
   );
+  /** The Google Calendar events drawn in one day column, all-day ones included. */
+  const externalOn = (d: DateTime) => {
+    const dayStart = d.startOf('day');
+    const dayEnd = dayStart.plus({ days: 1 });
+    return external.filter((e) => DateTime.fromISO(e.start, { zone: timezone }) < dayEnd && DateTime.fromISO(e.end, { zone: timezone }) > dayStart);
+  };
   const gridColumns = `60px repeat(${days.length}, minmax(0, 1fr))`;
 
   return (
@@ -362,8 +434,11 @@ export function CalendarView({
               </>
             ) : (
               <>
-                <span className="font-medium text-zinc-600">
-                  {liveItems.length} {liveItems.length === 1 ? 'interview' : 'interviews'}
+                <span
+                  className="font-medium text-zinc-600"
+                  title={external.length > 0 ? `${plural(liveItems.length, 'interview')} · ${plural(external.length, 'Google Calendar event')}` : undefined}
+                >
+                  {plural(shownCount, shownNoun)}
                 </span>
                 <span className="text-zinc-300">·</span>
                 <span className="truncate">{zoneLabel(timezone)}</span>
@@ -525,7 +600,13 @@ export function CalendarView({
                   <div />
                   {days.map((d) => {
                     const isToday = now !== null && d.hasSame(now, 'day');
-                    const count = (byDay.get(d.toISODate()!) ?? []).filter((i) => i.status !== 'cancelled').length;
+                    // Everything the column actually shows: interviews booked here plus the events
+                    // from the user's own Google Calendar. With the overlay on, "events" is the
+                    // honest word for a total that is no longer interviews alone.
+                    const booked = (byDay.get(d.toISODate()!) ?? []).filter((i) => i.status !== 'cancelled').length;
+                    const others = externalOn(d).length;
+                    const count = booked + others;
+                    const noun = external.length > 0 ? 'event' : 'interview';
                     return (
                       <button
                         key={d.toISODate()}
@@ -534,6 +615,7 @@ export function CalendarView({
                           setCursor(d);
                           setView('day');
                         }}
+                        title={others > 0 ? `${plural(booked, 'interview')} · ${plural(others, 'Google Calendar event')}` : undefined}
                         className={cn('border-l border-zinc-100 px-2 py-2 text-center transition-colors hover:bg-zinc-50', isToday && 'bg-brand-50/50')}
                       >
                         <p className={cn('text-[11px] font-semibold uppercase tracking-wide', isToday ? 'text-brand-700' : 'text-zinc-400')}>{d.toFormat('ccc')}</p>
@@ -545,7 +627,7 @@ export function CalendarView({
                         >
                           {d.day}
                         </p>
-                        <p className="tabular mt-0.5 h-3 text-[10px] font-medium text-zinc-400">{count > 0 ? `${count} interview${count === 1 ? '' : 's'}` : ''}</p>
+                        <p className="tabular mt-0.5 h-3 text-[10px] font-medium text-zinc-400">{count > 0 ? plural(count, noun) : ''}</p>
                       </button>
                     );
                   })}
@@ -580,16 +662,16 @@ export function CalendarView({
 
                 <div ref={scrollRef} className={cn('scrollbar-thin relative overflow-y-auto', fill ? 'max-h-[640px] sm:max-h-none sm:min-h-[320px] sm:flex-1' : 'max-h-[640px]')}>
                   <div className="grid" style={{ gridTemplateColumns: gridColumns }}>
-                    <div className="relative bg-white" style={{ height: HOUR_PX * 24 }}>
+                    <div className="relative bg-white" style={{ height: hourPx * 24 }}>
                       {Array.from({ length: 24 }, (_, h) => (
-                        <span key={h} className="tabular absolute right-2 -translate-y-1/2 text-[11px] font-medium text-zinc-400" style={{ top: h * HOUR_PX }}>
+                        <span key={h} className="tabular absolute right-2 -translate-y-1/2 text-[11px] font-medium text-zinc-400" style={{ top: h * hourPx }}>
                           {h === 0 ? '' : DateTime.fromObject({ hour: h }).toFormat('h a')}
                         </span>
                       ))}
                       {now && days.some((d) => d.hasSame(now, 'day')) && (
                         <span
                           className="tabular absolute right-1.5 z-10 -translate-y-1/2 rounded bg-rose-500 px-1 py-px text-[10px] font-semibold text-white shadow-sm"
-                          style={{ top: (now.diff(now.startOf('day'), 'minutes').minutes / 60) * HOUR_PX }}
+                          style={{ top: (now.diff(now.startOf('day'), 'minutes').minutes / 60) * hourPx }}
                         >
                           {now.toFormat('h:mm')}
                         </span>
@@ -599,10 +681,10 @@ export function CalendarView({
                       const dayStart = d.startOf('day');
                       const dayEnd = dayStart.plus({ days: 1 });
                       const isToday = now !== null && d.hasSame(now, 'day');
-                      const toPx = (dt: DateTime) => (dt.diff(dayStart, 'minutes').minutes / 60) * HOUR_PX;
+                      const toPx = (dt: DateTime) => (dt.diff(dayStart, 'minutes').minutes / 60) * hourPx;
                       const place = (s: DateTime, e: DateTime) => {
                         const start = toPx(s < dayStart ? dayStart : s);
-                        return { start, end: Math.max(start + 22, toPx(e < dayEnd ? e : dayEnd)) };
+                        return { start, end: Math.max(start + MIN_CHIP_PX, toPx(e < dayEnd ? e : dayEnd)) };
                       };
                       const entries = layoutDay<GridEntry>([
                         ...(byDay.get(d.toISODate()!) ?? []).map((interview) => ({
@@ -620,14 +702,14 @@ export function CalendarView({
                         .map((b) => ({ s: DateTime.fromISO(b.start, { zone: timezone }), e: DateTime.fromISO(b.end, { zone: timezone }) }))
                         .filter((b) => b.s < dayEnd && b.e > dayStart);
                       return (
-                        <div key={d.toISODate()} className={cn('relative border-l border-zinc-100', isToday && 'bg-brand-50/25')} style={{ height: HOUR_PX * 24 }}>
-                          <div className="pointer-events-none absolute inset-x-0 top-0 bg-zinc-100/50" style={{ height: WORK_START_HOUR * HOUR_PX }} />
-                          <div className="pointer-events-none absolute inset-x-0 bg-zinc-100/50" style={{ top: WORK_END_HOUR * HOUR_PX, height: (24 - WORK_END_HOUR) * HOUR_PX }} />
+                        <div key={d.toISODate()} className={cn('relative border-l border-zinc-100', isToday && 'bg-brand-50/25')} style={{ height: hourPx * 24 }}>
+                          <div className="pointer-events-none absolute inset-x-0 top-0 bg-zinc-100/50" style={{ height: WORK_START_HOUR * hourPx }} />
+                          <div className="pointer-events-none absolute inset-x-0 bg-zinc-100/50" style={{ top: WORK_END_HOUR * hourPx, height: (24 - WORK_END_HOUR) * hourPx }} />
                           {Array.from({ length: 24 }, (_, h) => (
-                            <div key={h} className="pointer-events-none absolute inset-x-0 border-t border-zinc-100" style={{ top: h * HOUR_PX }} />
+                            <div key={h} className="pointer-events-none absolute inset-x-0 border-t border-zinc-100" style={{ top: h * hourPx }} />
                           ))}
                           {Array.from({ length: 24 }, (_, h) => (
-                            <div key={`half-${h}`} className="pointer-events-none absolute inset-x-0 border-t border-zinc-100/50" style={{ top: (h + 0.5) * HOUR_PX }} />
+                            <div key={`half-${h}`} className="pointer-events-none absolute inset-x-0 border-t border-zinc-100/50" style={{ top: (h + 0.5) * hourPx }} />
                           ))}
                           {busyBands.map((b, idx) => {
                             const top = toPx(b.s < dayStart ? dayStart : b.s);
@@ -643,52 +725,70 @@ export function CalendarView({
                               </div>
                             );
                           })}
-                          {entries.map(({ item: entry, start, end, lane, lanes }) => {
-                            const geometry = laneGeometry(lane, lanes);
-                            const height = end - start - 2;
-                            const position = { top: start, height, ...geometry };
-                            const compact = height < 46;
-                            // Three-way clashes leave chips only a few characters wide, so they drop
-                            // to the name alone and expand over their neighbours on hover.
-                            const narrow = lanes >= 3;
-                            const expandOnHover = lanes > 1 ? 'hover:left-[3px]! hover:w-[calc(100%-6px)]!' : '';
+                          {entries.map(({ item: entry, start, end, depth, left, right }) => {
+                            const height = end - start - 1;
+                            // What a chip shows depends on how many lines its real height holds: one
+                            // line reads "Name, 3pm" like Google Calendar, two add the time range, three
+                            // the interview type. Nothing is stretched to fit more text in.
+                            const lines = Math.max(1, Math.floor((height - 4) / CHIP_LINE_PX));
+                            // Width in week-column units, so a third of the wide day view isn't cramped.
+                            const narrow = (right - left) * (7 / days.length) < 0.4;
+                            const position = {
+                              top: start,
+                              height,
+                              left: `calc(${left * 100}% + 2px)`,
+                              width: `calc(${(right - left) * 100}% - 4px)`,
+                              zIndex: depth + 1,
+                            };
+                            const chip = cn(
+                              'absolute overflow-hidden text-left transition hover:z-20 hover:px-2 hover:shadow-md',
+                              height < 16 ? 'rounded' : 'rounded-md',
+                              height < 13 ? 'text-[10px] leading-none' : 'text-[11px] leading-[14px]',
+                              // Flex, because a <button> otherwise centres its content vertically: text
+                              // belongs at the top, where a chip stacked on top leaves it visible.
+                              lines === 1 ? 'flex items-center' : 'flex flex-col py-[3px]',
+                              narrow ? 'px-1' : 'px-2',
+                              // A chip that doesn't span the column lifts to full width on hover.
+                              right - left < 1 && 'hover:left-[2px]! hover:w-[calc(100%-4px)]!',
+                              // Stacked chips get a white outline so the one underneath reads as separate.
+                              depth > 0 && 'shadow-sm ring-1 ring-white',
+                            );
                             if (entry.kind === 'external') {
                               const ev = entry.event;
+                              const s = DateTime.fromISO(ev.start, { zone: timezone });
+                              const e = DateTime.fromISO(ev.end, { zone: timezone });
                               return (
                                 <button
                                   key={`x-${ev.id}`}
                                   onClick={() => setSelectedExternal(ev)}
-                                  title={`${ev.title} · ${ev.calendarName}`}
-                                  className={cn(
-                                    'absolute overflow-hidden rounded-lg border-l-2 border-l-zinc-400 bg-zinc-100 py-1 text-left text-[11px] ring-1 ring-zinc-200/70 transition hover:z-20 hover:shadow-md hover:px-2',
-                                    narrow ? 'px-1' : 'px-2',
-                                    expandOnHover,
-                                  )}
+                                  title={`${ev.title} · ${clockRange(s, e)} · ${ev.calendarName}`}
+                                  className={cn(chip, 'border-l-2 border-l-zinc-400 bg-zinc-100', depth === 0 && 'ring-1 ring-zinc-200/70')}
                                   style={position}
                                 >
-                                  <span className="block truncate font-medium text-zinc-600">{ev.title}</span>
-                                  {!compact && !narrow && (
-                                    <span className="tabular block truncate text-zinc-400">
-                                      {DateTime.fromISO(ev.start, { zone: timezone }).toFormat('h:mm')} – {DateTime.fromISO(ev.end, { zone: timezone }).toFormat('h:mm a')}
+                                  {lines === 1 ? (
+                                    <span className="truncate">
+                                      <span className="font-medium text-zinc-600">{ev.title}</span>
+                                      {!narrow && <span className="tabular text-zinc-400">, {clock(s)}</span>}
                                     </span>
+                                  ) : (
+                                    <>
+                                      <span className="block truncate font-medium text-zinc-600">{ev.title}</span>
+                                      <span className="tabular block truncate text-zinc-400">{clockRange(s, e)}</span>
+                                    </>
                                   )}
                                 </button>
                               );
                             }
                             const item = entry.interview;
                             const cancelled = item.status === 'cancelled';
+                            const s = DateTime.fromISO(item.startAt, { zone: timezone });
+                            const e = DateTime.fromISO(item.endAt, { zone: timezone });
                             return (
                               <button
                                 key={item.id}
                                 onClick={() => setSelected(item)}
-                                title={`${item.candidate.name} · ${item.eventType.name} · ${DateTime.fromISO(item.startAt, { zone: timezone }).toFormat('h:mm a')}`}
-                                className={cn(
-                                  'absolute overflow-hidden rounded-lg py-1 text-left text-[11px] shadow-sm ring-1 transition',
-                                  narrow ? 'px-1' : 'px-2',
-                                  'hover:z-20 hover:shadow-md hover:px-2',
-                                  cancelled ? 'text-zinc-400 ring-zinc-200' : 'ring-black/[0.07]',
-                                  expandOnHover,
-                                )}
+                                title={`${item.candidate.name} · ${clockRange(s, e)} · ${item.eventType.name}`}
+                                className={cn(chip, cancelled && 'text-zinc-400', depth === 0 && cn('shadow-sm ring-1', cancelled ? 'ring-zinc-200' : 'ring-black/[0.07]'))}
                                 style={{
                                   ...position,
                                   borderLeft: `3px solid ${cancelled ? '#d4d4d8' : item.eventType.color}`,
@@ -698,16 +798,22 @@ export function CalendarView({
                                     : undefined,
                                 }}
                               >
-                                <span className={cn('flex items-center gap-1', cancelled && 'line-through')}>
-                                  <span className="truncate font-semibold text-zinc-900">{item.candidate.name}</span>
-                                  {!narrow && <LocationIcon type={item.locationType} className="size-3 shrink-0 text-zinc-500" />}
-                                </span>
-                                {!compact && !narrow && (
-                                  <span className="tabular block truncate font-medium text-zinc-600">
-                                    {DateTime.fromISO(item.startAt, { zone: timezone }).toFormat('h:mm')} – {DateTime.fromISO(item.endAt, { zone: timezone }).toFormat('h:mm a')}
+                                {lines === 1 ? (
+                                  <span className="truncate">
+                                    <span className={cn('font-semibold', cancelled ? 'line-through' : 'text-zinc-900')}>{item.candidate.name}</span>
+                                    {!narrow && <span className="tabular font-medium text-zinc-600">, {clock(s)}</span>}
                                   </span>
+                                ) : (
+                                  <>
+                                    <span className={cn('flex items-center gap-1', cancelled && 'line-through')}>
+                                      <span className={cn('truncate font-semibold', !cancelled && 'text-zinc-900')}>{item.candidate.name}</span>
+                                      {/* Week columns are too narrow to spend the room on it; the name comes first. */}
+                                      {view === 'day' && !narrow && <LocationIcon type={item.locationType} className="size-3 shrink-0 text-zinc-500" />}
+                                    </span>
+                                    <span className="tabular block truncate font-medium text-zinc-600">{clockRange(s, e)}</span>
+                                    {lines >= 3 && !narrow && <span className="block truncate text-zinc-500">{item.eventType.name}</span>}
+                                  </>
                                 )}
-                                {height > 72 && !narrow && <span className="block truncate text-zinc-500">{item.eventType.name}</span>}
                               </button>
                             );
                           })}
