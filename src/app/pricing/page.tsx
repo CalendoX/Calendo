@@ -65,7 +65,7 @@ export default async function PricingPage() {
       </main>
       <footer className="border-t border-zinc-100 py-8 text-center text-sm text-zinc-500">
         <Link href="/" className="hover:text-zinc-700">
-          © {new Date().getFullYear()} Calendo
+          © {new Date().getFullYear()} CalendoX
         </Link>
       </footer>
     </div>

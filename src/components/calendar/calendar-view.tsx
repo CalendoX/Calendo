@@ -1,7 +1,7 @@
 'use client';
 
 import { DateTime } from 'luxon';
-import { ArrowRight, CalendarClock, ChevronLeft, ChevronRight, Clock, ExternalLink, Globe2, MapPin, Phone, User, Users, Video } from 'lucide-react';
+import { ArrowRight, CalendarClock, ChevronLeft, ChevronRight, Clock, ExternalLink, Globe2, MapPin, Phone, RefreshCw, User, Users, Video } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { InterviewStatusBadge, SyncBadge } from '@/components/interviews/status-badge';
@@ -55,6 +55,13 @@ const HOUR_PX = 56;
 const WORK_START_HOUR = 8;
 const WORK_END_HOUR = 19;
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+/**
+ * Not real-time on purpose: the view re-fetches quietly when the user comes back to the tab and the
+ * data is older than STALE_AFTER_MS, and every POLL_INTERVAL_MS while the tab stays visible. Hidden
+ * tabs never poll, and the Google overlay is additionally cached on the server.
+ */
+const STALE_AFTER_MS = 60_000;
+const POLL_INTERVAL_MS = 5 * 60_000;
 
 const LOCATION_ICONS: Record<string, typeof Video> = { zoom: Video, google_meet: Video, phone: Phone, in_person: MapPin, custom: MapPin };
 
@@ -165,6 +172,9 @@ export function CalendarView({
   const [selected, setSelected] = useState<CalItem | null>(null);
   const [selectedExternal, setSelectedExternal] = useState<ExternalEvent | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const requestRef = useRef<AbortController | null>(null);
+  const lastFetchRef = useRef(0);
   const range = useMemo(() => rangeFor(view, cursor), [view, cursor]);
   const isGrid = view === 'week' || view === 'day';
   // The current time only exists in the browser (and ticks every minute), so the "now" line and
@@ -183,17 +193,20 @@ export function CalendarView({
     if (window.matchMedia('(max-width: 640px)').matches) setView('agenda');
   }, []);
 
+  /** `quiet` background refreshes keep what's on screen when a request fails. */
   const load = useCallback(
-    async (signal: AbortSignal) => {
-      setError(null);
+    async (signal: AbortSignal, quiet: boolean) => {
+      lastFetchRef.current = Date.now();
+      if (!quiet) setError(null);
       const qs = new URLSearchParams({ start: range.start.toUTC().toISO()!, end: range.end.toUTC().toISO()!, scope });
       if (interviewerId) qs.set('interviewerId', interviewerId);
       if (showCancelled) qs.set('includeCancelled', 'true');
       try {
         const res = await api<{ items: CalItem[] }>(`/api/calendar/events?${qs}`, { signal });
         setItems(res.items);
+        setError(null);
       } catch (err) {
-        if (!signal.aborted) setError(errorMessage(err, 'Could not load interviews.'));
+        if (!signal.aborted && !quiet) setError(errorMessage(err, 'Could not load interviews.'));
       }
       if (isGrid && scope === 'mine') {
         try {
@@ -205,8 +218,10 @@ export function CalendarView({
           setExternal(b.events);
           setBusyState(!b.connected ? 'none' : b.available ? 'ok' : 'unavailable');
         } catch {
-          setBusy([]);
-          setExternal([]);
+          if (!quiet && !signal.aborted) {
+            setBusy([]);
+            setExternal([]);
+          }
         }
       } else {
         setBusy([]);
@@ -217,12 +232,39 @@ export function CalendarView({
     [range, scope, interviewerId, showCancelled, isGrid],
   );
 
+  /** Starts a fetch, cancelling any still in flight. Only 'initial' blanks the view while loading. */
+  const reload = useCallback(
+    (mode: 'initial' | 'quiet' | 'manual') => {
+      requestRef.current?.abort();
+      const ctrl = new AbortController();
+      requestRef.current = ctrl;
+      if (mode === 'initial') setItems(null);
+      if (mode === 'manual') setRefreshing(true);
+      void load(ctrl.signal, mode === 'quiet').finally(() => {
+        if (requestRef.current === ctrl) setRefreshing(false);
+      });
+    },
+    [load],
+  );
+
   useEffect(() => {
-    const ctrl = new AbortController();
-    setItems(null);
-    load(ctrl.signal);
-    return () => ctrl.abort();
-  }, [load]);
+    reload('initial');
+    return () => requestRef.current?.abort();
+  }, [reload]);
+
+  useEffect(() => {
+    const refreshIfStale = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastFetchRef.current >= STALE_AFTER_MS) reload('quiet');
+    };
+    const id = setInterval(refreshIfStale, POLL_INTERVAL_MS);
+    document.addEventListener('visibilitychange', refreshIfStale);
+    window.addEventListener('focus', refreshIfStale);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', refreshIfStale);
+      window.removeEventListener('focus', refreshIfStale);
+    };
+  }, [reload]);
 
   useEffect(() => {
     if (isGrid && scrollRef.current) scrollRef.current.scrollTop = HOUR_PX * (WORK_START_HOUR - 0.5);
@@ -298,6 +340,16 @@ export function CalendarView({
               <ChevronRight className="size-4" />
             </button>
           </div>
+          <button
+            type="button"
+            onClick={() => reload('manual')}
+            disabled={refreshing}
+            aria-label="Refresh"
+            title="Refresh"
+            className="flex size-8 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-500 shadow-sm transition-colors hover:bg-zinc-50 hover:text-zinc-900 disabled:text-zinc-400"
+          >
+            <RefreshCw className={cn('size-4', refreshing && 'animate-spin')} />
+          </button>
         </div>
         <div className="min-w-0">
           <h2 className="truncate text-[15px] font-semibold tracking-tight text-zinc-900" aria-live="polite">
