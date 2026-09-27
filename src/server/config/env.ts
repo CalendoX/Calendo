@@ -42,6 +42,9 @@ const EnvSchema = z.object({
   ZOOM_REDIRECT_URI: optionalString,
   ZOOM_WEBHOOK_SECRET_TOKEN: optionalString,
 
+  /** Google Search Console "HTML tag" token; proves domain ownership for the OAuth consent screen. */
+  GOOGLE_SITE_VERIFICATION: optionalString,
+
   /** Public HTTPS base URL used for provider push notifications (defaults to APP_URL). */
   WEBHOOK_BASE_URL: optionalString,
 
@@ -121,6 +124,10 @@ export function googleConfig() {
     clientSecret: e.GOOGLE_CLIENT_SECRET,
     redirectUri: e.GOOGLE_REDIRECT_URI ?? appUrl('/api/integrations/google/callback'),
   };
+}
+
+export function googleSiteVerification(): string | null {
+  return env().GOOGLE_SITE_VERIFICATION ?? null;
 }
 
 export function zoomConfig() {

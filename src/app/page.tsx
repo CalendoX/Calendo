@@ -1,22 +1,35 @@
-import { ArrowRight, CalendarCheck2, Clock3, Globe2, ShieldCheck, Video, Zap } from 'lucide-react';
+import { ArrowRight, Bell, CalendarCheck2, CreditCard, Globe2, LayoutDashboard, ShieldCheck, Users, Video, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { GitHubIcon, GITHUB_REPO_URL } from '@/components/app/github-icon';
 import { Logo } from '@/components/app/logo';
+import { MarkdownText } from '@/components/app/markdown-text';
 import { Button } from '@/components/ui/button';
 import { getAuth } from '@/server/auth/session';
+import { landingCopy } from '@/server/content/readme';
 
-const FEATURES = [
-  { icon: CalendarCheck2, title: 'Real availability', body: 'Working hours, buffers and every connected calendar, checked live.' },
-  { icon: Video, title: 'Zoom, automatically', body: 'A meeting for every interview, kept in sync when plans change.' },
-  { icon: Globe2, title: 'Time-zone correct', body: 'Candidates see their own local time, daylight saving included.' },
-  { icon: Zap, title: 'No double-booking', body: 'Overlapping bookings are blocked, even when two people click at once.' },
-  { icon: Clock3, title: 'Reminders that land', body: 'Confirmations, reschedules and reminders, sent for you.' },
-  { icon: ShieldCheck, title: 'Built for teams', body: 'Roles, audit logs and an admin console for hiring operations.' },
+/**
+ * The headline, the paragraph under it and the feature list are written in README.md, so the
+ * project description and the marketing page can't drift apart. The icon for each feature is
+ * chosen from its heading — the README has no place to name one, and a fixed list would go stale
+ * as soon as someone adds a bullet.
+ */
+const FEATURE_ICONS: [RegExp, typeof Video][] = [
+  [/double-book|conflict|lock/, Zap],
+  [/calendar|zoom|meeting|video/, Video],
+  [/time.?zone|dst/, Globe2],
+  [/notification|email|reminder/, Bell],
+  [/candidate|self-service/, Users],
+  [/plan|pricing|sign-?up/, CreditCard],
+  [/dashboard|admin|audit|team/, LayoutDashboard],
+  [/security|permission|role|isolation/, ShieldCheck],
 ];
+
+const iconFor = (title: string) => FEATURE_ICONS.find(([pattern]) => pattern.test(title.toLowerCase()))?.[1] ?? CalendarCheck2;
 
 export default async function HomePage() {
   if (await getAuth()) redirect('/dashboard');
+  const { headline, intro, features } = landingCopy();
   return (
     <div className="flex min-h-screen flex-col bg-white">
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-5 sm:px-6">
@@ -36,10 +49,10 @@ export default async function HomePage() {
 
       <main className="flex-1">
         <section className="mx-auto max-w-3xl px-4 pb-20 pt-14 text-center sm:px-6 sm:pb-28 sm:pt-24">
-          <p className="mb-5 inline-flex items-center rounded-full bg-brand-50 px-3 py-1 text-sm font-medium text-brand-800 ring-1 ring-brand-200">Interview scheduling for hiring teams</p>
-          <h1 className="text-balance text-4xl font-semibold tracking-tight text-zinc-900 sm:text-6xl">Book interviews without the back-and-forth.</h1>
-          <p className="mx-auto mt-6 max-w-xl text-pretty text-lg leading-relaxed text-zinc-600">
-            Share one link. Candidates pick a time that works, and Calendo handles the Zoom meeting, the calendar event and every <span className="whitespace-nowrap">follow-up email</span>.
+          <p className="mb-5 inline-flex items-center rounded-full bg-brand-50 px-3 py-1 text-sm font-medium text-brand-800 ring-1 ring-brand-200">Open source · AGPL-3.0</p>
+          <h1 className="text-balance text-4xl font-semibold tracking-tight text-zinc-900 sm:text-6xl">{headline}</h1>
+          <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-zinc-600">
+            <MarkdownText>{intro}</MarkdownText>
           </p>
           <div className="mt-10 flex flex-wrap justify-center gap-3">
             <Button asChild size="lg">
@@ -56,17 +69,22 @@ export default async function HomePage() {
         </section>
 
         <section className="mx-auto grid max-w-6xl gap-x-10 gap-y-9 px-4 pb-20 sm:grid-cols-2 sm:px-6 sm:pb-28 lg:grid-cols-3">
-          {FEATURES.map((f) => (
-            <div key={f.title} className="flex gap-4">
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
-                <f.icon className="size-[18px]" />
-              </span>
-              <div>
-                <h2 className="text-[15px] font-semibold text-zinc-900">{f.title}</h2>
-                <p className="mt-1 text-sm leading-relaxed text-zinc-600">{f.body}</p>
+          {features.map((feature) => {
+            const Icon = iconFor(feature.title);
+            return (
+              <div key={feature.title} className="flex gap-4">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
+                  <Icon className="size-[18px]" />
+                </span>
+                <div>
+                  <h2 className="text-[15px] font-semibold text-zinc-900">{feature.title}</h2>
+                  <p className="mt-1 text-sm leading-relaxed text-zinc-600">
+                    <MarkdownText>{feature.body}</MarkdownText>
+                  </p>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </section>
 
         <section className="mx-auto max-w-6xl px-4 pb-20 sm:px-6 sm:pb-28">
@@ -93,6 +111,9 @@ export default async function HomePage() {
           <nav className="flex items-center gap-6">
             <Link href="/pricing" className="hover:text-zinc-900">
               Pricing
+            </Link>
+            <Link href="/privacy" className="hover:text-zinc-900">
+              Privacy
             </Link>
             <a href={GITHUB_REPO_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 hover:text-zinc-900">
               <GitHubIcon /> Open source on GitHub

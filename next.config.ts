@@ -27,6 +27,8 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   allowedDevOrigins: appHost && appHost !== 'localhost' ? [appHost] : [],
   output: 'standalone',
+  // The landing page reads its copy from README.md, so the file has to travel with the build.
+  outputFileTracingIncludes: { '/': ['./README.md'] },
   serverExternalPackages: ['pg', 'pg-boss', '@node-rs/argon2', 'nodemailer'],
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];

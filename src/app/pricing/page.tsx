@@ -67,6 +67,10 @@ export default async function PricingPage() {
         <Link href="/" className="hover:text-zinc-700">
           © {new Date().getFullYear()} CalendoX
         </Link>
+        <span className="mx-2">·</span>
+        <Link href="/privacy" className="hover:text-zinc-700">
+          Privacy
+        </Link>
       </footer>
     </div>
   );
