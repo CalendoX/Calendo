@@ -43,6 +43,13 @@
       "when": 1789997391517,
       "tag": "0005_organization_plans",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790602714233,
+      "tag": "0006_candidate_platform",
+      "breakpoints": true
     }
   ]
 }

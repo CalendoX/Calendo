@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { detectClientPlatform } from '@/server/http/client-platform';
 import { apiRoute, json, withPublicCors } from '@/server/http/handler';
 import { parseJsonBody, zEmail, zIsoInstant, zName, zTimeZone } from '@/server/http/validation';
 import { bookInterview } from '@/server/scheduling/booking-service';
@@ -48,6 +49,7 @@ export const POST = apiRoute<{ username: string; eventSlug: string }>(async (req
     idempotencyKey: idempotencyKey && /^[A-Za-z0-9_-]{8,100}$/.test(idempotencyKey) ? idempotencyKey : null,
     actor: { type: 'candidate', label: `${body.name} <${body.email}>` },
     meta,
+    candidatePlatform: detectClientPlatform(req.headers),
   });
   return withPublicCors(
     req,

@@ -12,6 +12,7 @@ import {
   type QuestionResponse,
 } from '../db/schema';
 import { BadRequestError, ConflictError, ForbiddenError, GoneError, NotFoundError, ValidationError } from '../http/errors';
+import type { ClientPlatform } from '../http/client-platform';
 import type { RequestMeta } from '../http/request';
 import { getActiveIntegration, getAvailability, getWriteCalendar } from '../integrations/service';
 import { LOCATION_CONFERENCING_PROVIDER } from '../integrations/registry';
@@ -68,6 +69,8 @@ export interface BookInput {
   idempotencyKey?: string | null;
   actor: Actor;
   meta?: RequestMeta | null;
+  /** The candidate's OS/device, detected from the booking request (candidate bookings only). */
+  candidatePlatform?: ClientPlatform | null;
   /** Dashboard bookings by hosts/admins may bypass working hours / notice (never conflicts). */
   hostOverrides?: CheckSlotOptions;
   /** Wait (bounded) for Zoom/Calendar creation so the response can include the meeting link. */
@@ -286,6 +289,9 @@ export async function bookInterview(input: BookInput): Promise<BookResult> {
           locationDetails: ctx.eventType.locationDetails,
           responses,
           source: linkId ? 'scheduling_link' : input.source,
+          candidateOs: input.candidatePlatform?.os ?? null,
+          candidateDevice: input.candidatePlatform?.device ?? null,
+          candidateUserAgent: input.candidatePlatform?.userAgent ?? null,
           idempotencyKey: input.idempotencyKey ?? null,
         })
         .returning();

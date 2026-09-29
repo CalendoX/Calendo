@@ -503,6 +503,14 @@ export const interviews = pgTable(
     locationDetails: text(),
     responses: jsonb().$type<QuestionResponse[]>().notNull().default([]),
     source: text({ enum: ['public_page', 'scheduling_link', 'dashboard'] }).notNull(),
+    /**
+     * Operating system / device class of the browser the candidate booked from, detected from
+     * request headers (see src/server/http/client-platform.ts). NULL for dashboard bookings and
+     * interviews booked before this was recorded. Only ever shown to admins.
+     */
+    candidateOs: text(),
+    candidateDevice: text({ enum: ['desktop', 'mobile', 'tablet'] }),
+    candidateUserAgent: text(),
     idempotencyKey: text(),
     /** Incremented on every change that must be propagated to integrations. */
     version: integer().notNull().default(1),
