@@ -6,6 +6,7 @@ import { POST as bookRoute } from '@/app/api/public/book/[username]/[eventSlug]/
 import { GET as availabilityRoute } from '@/app/api/public/availability/[username]/[eventSlug]/route';
 import { GET as scheduleRoute } from '@/app/api/public/schedule/[username]/[eventSlug]/route';
 import { GET as bookingViewRoute } from '@/app/api/public/bookings/[token]/route';
+import { GET as calendarEventsRoute } from '@/app/api/calendar/events/route';
 import { POST as createLinkRoute } from '@/app/api/event-types/[id]/links/route';
 import { DELETE as revokeLinkRoute } from '@/app/api/scheduling-links/[id]/route';
 import { db } from '@/server/db/client';
@@ -342,5 +343,38 @@ describe('candidate booking page tokens', () => {
 
     await db.update(bookingTokens).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(bookingTokens.interviewId, row.id));
     expect((await call(bookingViewRoute, { path: '/x', params: { token } })).status).toBe(410);
+  });
+});
+
+describe('public booking: candidate device', () => {
+  it("records the candidate's OS and shows it to admins only", async () => {
+    const { org, host, eventType } = await setup();
+    const start = upcomingWeekday(HOST_TZ, '11:00');
+    const res = await call(bookRoute, {
+      path: `/api/public/book/${host.username}/${eventType.slug}`,
+      params: { username: host.username, eventSlug: eventType.slug },
+      body: { start: start.toISOString(), ...candidate() },
+      headers: { 'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148' },
+      origin: false,
+      ip: '10.9.0.1',
+    });
+    expect(res.status).toBe(201);
+    const [row] = await db.select().from(interviews).where(eq(interviews.eventTypeId, eventType.id));
+    expect(row).toMatchObject({ candidateOs: 'iOS', candidateDevice: 'mobile' });
+    expect(row.candidateUserAgent).toContain('iPhone');
+
+    const qs = new URLSearchParams({ start: addMinutes(start, -60).toISOString(), end: addMinutes(start, 120).toISOString(), scope: 'team' });
+    const itemFor = async (user: User) => {
+      await signIn(user);
+      const list = await call(calendarEventsRoute, { path: `/api/calendar/events?${qs}` });
+      signOut();
+      expect(list.status).toBe(200);
+      return list.body.items.find((i: { id: string }) => i.id === row.id);
+    };
+    const admin = await createMember(org, { role: 'admin' });
+    const recruiter = await createMember(org, { role: 'recruiter' });
+    expect((await itemFor(admin)).candidatePlatform).toEqual({ os: 'iOS', device: 'mobile' });
+    expect(await itemFor(recruiter)).not.toHaveProperty('candidatePlatform');
+    expect(await itemFor(host)).not.toHaveProperty('candidatePlatform');
   });
 });

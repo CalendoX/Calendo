@@ -205,7 +205,17 @@ export async function listInterviewsInRange(
     .where(and(...conditions))
     .orderBy(asc(interviews.startAt))
     .limit(1000);
-  return rows.map(toListItem);
+  // The candidate's OS/device is admin-only: recruiters and interviewers never receive the field.
+  if (!isAdmin(ctx)) return rows.map(toListItem);
+  return rows.map((r): InterviewListItem & { candidatePlatform: CandidatePlatform | null } => ({
+    ...toListItem(r),
+    candidatePlatform: r.interview.candidateOs ? { os: r.interview.candidateOs, device: r.interview.candidateDevice } : null,
+  }));
+}
+
+export interface CandidatePlatform {
+  os: string;
+  device: 'desktop' | 'mobile' | 'tablet' | null;
 }
 
 export async function getInterviewDetails(ctx: AuthContext, id: string) {

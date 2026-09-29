@@ -1,7 +1,7 @@
 'use client';
 
 import { DateTime } from 'luxon';
-import { ArrowRight, CalendarClock, ChevronLeft, ChevronRight, Clock, ExternalLink, Globe2, MapPin, Phone, RefreshCw, User, Users, Video } from 'lucide-react';
+import { ArrowRight, CalendarClock, ChevronLeft, ChevronRight, Clock, ExternalLink, Globe2, MapPin, Monitor, Phone, RefreshCw, Smartphone, Tablet, User, Users, Video } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { InterviewStatusBadge, SyncBadge } from '@/components/interviews/status-badge';
@@ -29,7 +29,15 @@ interface CalItem {
   locationType: string;
   meetingStatus: 'pending' | 'synced' | 'failed' | 'cancelled' | 'deleted_externally' | null;
   calendarStatus: 'pending' | 'synced' | 'failed' | 'cancelled' | 'deleted_externally' | null;
+  /**
+   * The OS/device the candidate booked from. The server only includes the key for admins; `null`
+   * means it wasn't recorded (dashboard bookings, or booked before detection existed).
+   */
+  candidatePlatform?: { os: string; device: 'desktop' | 'mobile' | 'tablet' | null } | null;
 }
+
+const DEVICE_ICONS = { desktop: Monitor, mobile: Smartphone, tablet: Tablet } as const;
+const DEVICE_LABELS = { desktop: 'Desktop', mobile: 'Mobile', tablet: 'Tablet' } as const;
 
 /** An event from the user's own Google Calendar (see /api/calendar/busy). */
 interface ExternalEvent {
@@ -900,6 +908,7 @@ export function CalendarView({
                 <User className="mt-0.5 size-4 shrink-0 text-zinc-400" /> {selected.candidate.email}
                 <span className="text-zinc-400">· Interviewer: {selected.host.name}</span>
               </li>
+              {selected.candidatePlatform !== undefined && <CandidatePlatformRow platform={selected.candidatePlatform} />}
               {selected.locationType === 'zoom' && (
                 <li className="flex items-center gap-3">
                   <Video className="size-4 shrink-0 text-zinc-400" /> <SyncBadge status={selected.meetingStatus} label="Zoom" />
@@ -1044,6 +1053,23 @@ function AgendaView({
         );
       })}
     </ol>
+  );
+}
+
+function CandidatePlatformRow({ platform }: { platform: CalItem['candidatePlatform'] }) {
+  const Icon = platform?.device ? DEVICE_ICONS[platform.device] : Monitor;
+  return (
+    <li className="flex gap-3" title="Detected from the candidate's browser when they booked">
+      <Icon className="mt-0.5 size-4 shrink-0 text-zinc-400" />
+      {platform ? (
+        <span>
+          {platform.os === 'Other' ? 'Unknown OS' : platform.os}
+          {platform.device && <span className="text-zinc-400"> · {DEVICE_LABELS[platform.device]}</span>}
+        </span>
+      ) : (
+        <span className="text-zinc-400">Device not recorded</span>
+      )}
+    </li>
   );
 }
 
